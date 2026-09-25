@@ -9,6 +9,18 @@ in the persistence layer and service results; they never enter published state.
 
 ## Locked contract
 
+### Refresh identity guard (SEC-02, 2026-09-25)
+
+Online refresh captures a service-owned roster generation while validating the original
+profile under the account lock. A successful durable roster mutation advances that
+generation. Refresh commit must match both generation and original profile under the same
+lock; deletion/re-addition, replacement and competing refresh invalidate the operation.
+An unrelated roster edit conservatively requires a retry. The old unguarded index-only
+Microsoft update helper is internalized and requires this guard; it has no external routing
+contract. Stale results cannot persist or produce a successful launch identity. Genuine
+storage failure preserves the existing session-only launch behavior. Cancellation is
+checked after provider completion before any write.
+
 - Data contract: `LaunchProfile` carries the legacy field set and defaults verbatim —
   `Username` (required), `Info`, string-named `Kind` (`Microsoft`, `ThirdParty`, `Offline`,
   `LittleSkin`, `NCloud`), `Uuid`, `Logo`, `SvgIcon` (default `lucide/user`), `SkinAddress`,

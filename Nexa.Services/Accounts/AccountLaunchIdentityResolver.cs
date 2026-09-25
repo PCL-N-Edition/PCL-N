@@ -126,6 +126,8 @@ public sealed class AccountLaunchIdentityResolver(
         LaunchProfile profile,
         CancellationToken cancellationToken)
     {
+        if (!_accounts.TryCaptureRefresh(accountIndex, profile, out long generation))
+            return XsrResult.Failure<MinecraftLaunchIdentity>(AccountErrors.InvalidProfile("The account changed before launch authentication."));
         // Refresh comes first: a valid refresh token can restore an expired or missing access
         // token, so demanding complete persisted credentials beforehand would force a manual
         // re-login that the refresh chain can avoid.
@@ -152,6 +154,7 @@ public sealed class AccountLaunchIdentityResolver(
                     "the Microsoft session could not be refreshed; sign in again."));
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             if (!refreshed.OwnsMinecraft || string.IsNullOrWhiteSpace(refreshed.AccessToken))
             {
                 log?.Warn("Account", "The refreshed Microsoft session carries no Minecraft entitlement.");
@@ -163,9 +166,11 @@ public sealed class AccountLaunchIdentityResolver(
             // Prefer the refreshed identity (the player may have renamed); persist the rotated
             // credentials so the next launch refreshes from the newest refresh token.
             XsrResult persisted = _accounts.UpdateMicrosoftProfile(
-                accountIndex, refreshed.Username, refreshed.Uuid, refreshed.AccessToken, refreshed.RefreshToken);
+                accountIndex, profile, generation, refreshed.Username, refreshed.Uuid, refreshed.AccessToken, refreshed.RefreshToken);
             if (!persisted.IsSuccess)
             {
+                if (persisted.Error?.Code != AccountErrors.PersistFailedCode)
+                    return XsrResult.Failure<MinecraftLaunchIdentity>(persisted.Error!);
                 log?.Warn("Account", $"The refreshed Microsoft session could not be persisted: {persisted.Error?.Message}");
             }
 

@@ -51,6 +51,16 @@ public sealed class AccountService
     private readonly XsrStateId _profilesId;
     private readonly LogService? _log;
     private List<LaunchProfile> _profiles;
+    private long _credentialGeneration;
+
+    internal bool TryCaptureRefresh(int index, LaunchProfile expected, out long generation)
+    {
+        lock (_gate)
+        {
+            generation = _credentialGeneration;
+            return index >= 0 && index < _profiles.Count && _profiles[index] == expected;
+        }
+    }
 
     /// <summary>The index of the profile the product currently launches with.</summary>
     public static readonly XsrSemanticId SelectedKey = XsrSemanticId.Parse("accounts.selected");
@@ -261,11 +271,12 @@ public sealed class AccountService
 
     /// <summary>
     /// Persists refreshed Microsoft credentials for the profile at the given index,
-    /// durable-first: the port saves before any state is published. The username never changes,
-    /// so the presentation stays stable across refreshes.
+    /// durable-first and only while the captured profile and roster generation still match.
     /// </summary>
-    public XsrResult UpdateMicrosoftProfile(
+    internal XsrResult UpdateMicrosoftProfile(
         int index,
+        LaunchProfile expectedProfile,
+        long expectedGeneration,
         string username,
         string uuid,
         string accessToken,
@@ -273,11 +284,9 @@ public sealed class AccountService
     {
         lock (_gate)
         {
-            if (index < 0 || index >= _profiles.Count)
-            {
-                return XsrResult.Failure(AccountErrors.ProfileNotFound(index));
-            }
-
+            if (_credentialGeneration != expectedGeneration || index < 0 || index >= _profiles.Count
+                || _profiles[index] != expectedProfile)
+                return XsrResult.Failure(AccountErrors.InvalidProfile("the account changed while refreshing its session."));
             LaunchProfile profile = _profiles[index];
             if (profile.Kind != LaunchProfileKind.Microsoft)
             {
@@ -423,6 +432,7 @@ public sealed class AccountService
         try
         {
             _port.Save(new LaunchProfileSet { Profiles = profiles });
+            _credentialGeneration++;
             operation?.Complete();
             return XsrResult.Success();
         }
