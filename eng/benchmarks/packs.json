@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "packs": [{
+    "id": "fo-6.5.0",
+    "provider": "modrinth",
+    "project": "1KVo5zza",
+    "version": "N276l2ON",
+    "minecraft": "1.21.1",
+    "loader": "Fabric",
+    "loaderVersion": "0.19.3",
+    "java": 21,
+    "url": "https://cdn.modrinth.com/data/1KVo5zza/versions/N276l2ON/Fabulously.Optimized-v6.5.0.mrpack",
+    "bytes": 177589,
+    "sha256": "d38de68f71d6b7a475e2fcc3d346371dd386415583f56ee0cb6e4d9ac14dcc57",
+    "sha512": "56d67f427207f561e21eaf53e98e4af1429327f3fa1215361e9bfad73e19fa905687c7692de2a1174d66e3bff4ffd7c7d3fbd8fe88de5d3fb50ba79f673e0f00"
+  }]
+}

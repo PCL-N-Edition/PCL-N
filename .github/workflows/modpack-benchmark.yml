@@ -1,0 +1,72 @@
+name: Modpack benchmark pilot
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [refactor/xsr]
+    paths:
+      - .github/workflows/modpack-benchmark.yml
+      - eng/benchmarks/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: modpack-benchmark-pilot
+  cancel-in-progress: true
+
+jobs:
+  pilot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Publish real launch and sampling hosts
+        run: |
+          dotnet publish Nexa.Jvm.Host -c Release -p:PublishAot=true -o "$RUNNER_TEMP/jvm-host"
+          dotnet publish tools/Nexa.Minecraft.Benchmarks -c Release -p:PublishAot=true -o "$RUNNER_TEMP/benchmark"
+      - name: Verify artifact boundary
+        run: python -m unittest discover -s eng/benchmarks -p 'test_*.py'
+      - name: Download reviewed pack with pinned hashes
+        run: python eng/benchmarks/pilot.py download "$RUNNER_TEMP/pack.mrpack"
+      - name: Build disposable software-rendered environment
+        run: |
+          docker build -t nexa-benchmark -f eng/benchmarks/Dockerfile eng/benchmarks
+          mkdir "$RUNNER_TEMP/benchmark-output"
+          sudo chown 10001:10001 "$RUNNER_TEMP/benchmark-output"
+          docker image inspect nexa-benchmark --format '{{.Id}}'
+      - name: Import pack and sample actual Minecraft client
+        timeout-minutes: 15
+        run: |
+          hash=$(python -c "import json; print(json.load(open('eng/benchmarks/packs.json'))['packs'][0]['sha256'])")
+          timeout --signal=TERM --kill-after=15s 840s docker run --name nexa-benchmark-run --rm \
+            --cap-drop=ALL --security-opt=no-new-privileges --read-only --pids-limit=512 --memory=6g --cpus=2 \
+            --tmpfs /tmp:rw,nosuid,size=1g --tmpfs /home/benchmark:rw,uid=10001,gid=10001,size=64m --shm-size=256m \
+            --mount "type=bind,source=$RUNNER_TEMP/benchmark,target=/harness,readonly" \
+            --mount "type=bind,source=$RUNNER_TEMP/jvm-host,target=/jvm-host,readonly" \
+            --mount "type=bind,source=$JAVA_HOME,target=/java,readonly" \
+            --mount "type=bind,source=$RUNNER_TEMP/pack.mrpack,target=/pack.mrpack,readonly" \
+            --mount "type=bind,source=$RUNNER_TEMP/benchmark-output,target=/output" \
+            nexa-benchmark /pack.mrpack "$hash" /java/bin/java /jvm-host/Nexa.Jvm.Host /output/run 2048 90
+      - name: Stop container before inspecting untrusted output
+        if: always()
+        run: docker rm -f nexa-benchmark-run 2>/dev/null || true
+      - name: Collect bounded normalized measurements only
+        if: always()
+        run: python eng/benchmarks/pilot.py collect "$RUNNER_TEMP/benchmark-output/run" "$RUNNER_TEMP/benchmark-artifacts"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: modpack-pilot-unverified-client
+          path: ${{ runner.temp }}/benchmark-artifacts
+          if-no-files-found: warn
+          retention-days: 7

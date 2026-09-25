@@ -1,6 +1,7 @@
 # Alpha 5 — controlled modpack benchmarks for model seeding
 
-Status: the initial console harness is implemented; no benchmark workflow or collected seed dataset exists yet.
+Status: the initial console harness and a single-pack Actions pilot are implemented; no eligible seed
+dataset exists yet. Real-run acceptance and scenario adapters remain incomplete.
 This extends `online-resource-learning.md`; existing user-session telemetry must not be relabeled or
 silently mixed with benchmark runs. GitHub Actions orchestrates runs, but a hosted VM is not a
 representative physical gaming PC.
@@ -18,6 +19,15 @@ status in `run.json` alongside `samples.csv`. It deliberately sets `trainingElig
 adapters, full hardware provenance, mod-inventory artifacts, and real-pack validation are still pending.
 The created `game` directory is local scratch data and must not be uploaded as a CI artifact.
 `eng/xsr/Test-MinecraftBenchmark.ps1` checks argument/hash/storage boundaries without downloading games.
+
+The pilot pins Fabulously Optimized 6.5.0 / Modrinth N276l2ON (Minecraft 1.21.1, Fabric 0.19.3).
+The archive's published SHA-512 and computed SHA-256 are recorded in `eng/benchmarks/packs.json`.
+The Actions job uses a non-root, read-only Linux container, software rendering, two CPUs and a 6 GiB
+memory cap. It mounts only published tools, Java, the pack and a fresh output directory, without CI
+credentials. The container is stopped before a separate bounded no-follow collector normalizes the
+two allowed measurement files. No recursive game-directory/log upload is allowed. The job can be
+triggered manually and runs on changes to its reviewed catalog/workflow; there is no nightly large
+matrix yet. Container/runner performance is not a hardware-rendered player baseline.
 
 ## Dataset and runner selection
 
