@@ -21,8 +21,16 @@ This is the trust-critical tail of the update flow that XSR-507 (block codecs), 
 - Single-root flattening: while the staged root holds exactly one directory and no files, its
   contents move up one level (zip/tar wrappers); a name collision keeps the wrapper rather
   than merging.
-- Plan building: managed leftovers = every file under the install root, recursively, that the
-  target manifest no longer lists, excluding the updater-owned `UpdateState/` directory.
+- Plan building (security correction): absent a separately verified previous inventory,
+  no file is eligible for deletion. Unknown installation files are user-owned. An optional
+  `VerifiedUpdateInventory` is obtained only by verifying a signed block map and matching
+  its version and runtime to the running build. Old signed entries absent from the target
+  may be deleted only if their current size and hash still match; modified files survive.
+  `UpdateState/` is never a payload deletion candidate. Unsigned cached installed maps and
+  serialized plan `deletePaths` do not authorize deletion. Apply independently requires
+  the verified inventory, validates every requested deletion before placing files, and
+  rechecks unchanged content at deletion time. Without that inventory it refuses any
+  nonempty delete list. This supersedes the original recursive leftover enumeration.
   Manifest paths and the entry path are safe-resolved against the install root at plan time,
   so traversal is refused before the plan exists, not only when it is applied.
 - Applying: every staged file is re-verified (size + SHA-256) at apply time — the plan is a

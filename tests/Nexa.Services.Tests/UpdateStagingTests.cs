@@ -159,9 +159,7 @@ internal static partial class Program
             AssertEqual(1, plan.FormatVersion);
             AssertEqual("NexaCL.exe", plan.EntryRelativePath);
             AssertEqual(2, plan.Files.Count);
-            AssertTrue(plan.DeletePaths.Contains("legacy.dll", StringComparer.OrdinalIgnoreCase));
-            AssertTrue(plan.DeletePaths.Contains("data/old.json", StringComparer.OrdinalIgnoreCase));
-            AssertEqual(2, plan.DeletePaths.Count);
+            AssertEqual(0, plan.DeletePaths.Count);
             AssertFalse(plan.DeletePaths.Any(path => path.StartsWith("UpdateState", StringComparison.Ordinal)));
 
             // Round trips through the plan file contract.
@@ -194,14 +192,14 @@ internal static partial class Program
             File.WriteAllBytes(Path.Combine(installRoot, "obsolete.bin"), [0x88]);
 
             UpdateInstallPlan plan = UpdateStaging.BuildPlan(installRoot, stagedRoot, "NexaCL.exe", files);
-            plan.DeletePaths.Add("gone/missing.bin");
+
 
             UpdateStaging.ApplyPlan(plan);
 
             byte[] landed = File.ReadAllBytes(Path.Combine(installRoot, "NexaCL.exe"));
             AssertTrue(landed.SequenceEqual<byte>([0x01, 0x02, 0x03]));
             AssertEqual("{\"new\":true}", File.ReadAllText(Path.Combine(installRoot, "data", "config.json")));
-            AssertFalse(File.Exists(Path.Combine(installRoot, "obsolete.bin")));
+            AssertTrue(File.Exists(Path.Combine(installRoot, "obsolete.bin")));
             AssertFalse(File.Exists(Path.Combine(stagedRoot, "NexaCL.exe")));
 
             // Idempotent replay: the staged files are gone now, so a second apply refuses

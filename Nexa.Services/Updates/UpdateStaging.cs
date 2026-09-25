@@ -72,36 +72,28 @@ public static class UpdateStaging
         string installRoot,
         string stagedRoot,
         string entryRelativePath,
-        IReadOnlyList<UpdateFileEntry> targetFiles)
+        IReadOnlyList<UpdateFileEntry> targetFiles,
+        VerifiedUpdateInventory? previousInventory = null)
     {
         ArgumentNullException.ThrowIfNull(targetFiles);
-        HashSet<string> targetPaths = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> targetPaths = new(PathComparer);
         foreach (UpdateFileEntry file in targetFiles)
         {
             // Refuse unsafe manifest paths at plan time instead of at apply time.
             ResolveSafeRelativePath(installRoot, file.Path);
-            targetPaths.Add(NormalizeRelativePath(file.Path));
+            targetPaths.Add(CanonicalRelativePath(installRoot, file.Path));
         }
 
         ResolveSafeRelativePath(installRoot, entryRelativePath);
 
         List<string> deletes = [];
         string fullRoot = Path.GetFullPath(installRoot);
-        if (Directory.Exists(fullRoot))
+        if (previousInventory is not null)
         {
-            foreach (string path in Directory.EnumerateFiles(fullRoot, "*", SearchOption.AllDirectories))
+            foreach (var entry in previousInventory.Entries.Values)
             {
-                string relative = Path.GetRelativePath(fullRoot, path)
-                    .Replace(Path.DirectorySeparatorChar, '/');
-                if (relative.StartsWith("UpdateState/", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue; // Block cache and installed maps are updater-owned, not managed payloads.
-                }
-
-                if (!targetPaths.Contains(relative))
-                {
-                    deletes.Add(relative);
-                }
+                if (!targetPaths.Contains(entry.Path) && !IsUpdaterState(entry.Path)
+                    && IsUnmodified(ResolveSafeRelativePath(fullRoot, entry.Path), entry)) deletes.Add(entry.Path);
             }
         }
 
@@ -121,13 +113,23 @@ public static class UpdateStaging
     /// and deletes the managed leftovers. Paths are safe-resolved under their roots; escapes
     /// are refused.
     /// </summary>
-    public static UpdateInstallSummary ApplyPlan(UpdateInstallPlan plan)
+    public static UpdateInstallSummary ApplyPlan(UpdateInstallPlan plan, VerifiedUpdateInventory? previousInventory = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
         string installRoot = Path.GetFullPath(plan.InstallRoot
             ?? throw new InvalidDataException("安装计划缺少安装根目录。"));
         string stagedRoot = Path.GetFullPath(plan.StagedRoot
             ?? throw new InvalidDataException("安装计划缺少暂存目录。"));
+        // Validate all deletion authority before any file is consumed or replaced.
+        var targetPaths = new HashSet<string>(plan.Files.Select(file => CanonicalRelativePath(installRoot, file.Path)), PathComparer);
+        foreach (string delete in plan.DeletePaths)
+        {
+            ResolveSafeRelativePath(installRoot, delete);
+            string normalized = NormalizeRelativePath(delete);
+            if (previousInventory is null || !previousInventory.Entries.ContainsKey(normalized)
+                || targetPaths.Contains(normalized) || IsUpdaterState(normalized))
+                throw new InvalidDataException("更新计划没有删除该文件的授权。");
+        }
         int applied = 0;
         int deleted = 0;
 
@@ -155,7 +157,7 @@ public static class UpdateStaging
         foreach (string delete in plan.DeletePaths)
         {
             string path = ResolveSafeRelativePath(installRoot, delete);
-            if (File.Exists(path))
+            if (IsUnmodified(path, previousInventory!.Entries[NormalizeRelativePath(delete)]))
             {
                 File.Delete(path);
                 deleted++;
@@ -163,6 +165,21 @@ public static class UpdateStaging
         }
 
         return new UpdateInstallSummary(applied, deleted);
+    }
+
+    private static StringComparer PathComparer => OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
+    private static string CanonicalRelativePath(string root, string? path) =>
+        Path.GetRelativePath(Path.GetFullPath(root), ResolveSafeRelativePath(root, path)).Replace(Path.DirectorySeparatorChar, '/');
+
+    private static bool IsUpdaterState(string path) => path.Equals("UpdateState", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("UpdateState/", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsUnmodified(string path, VerifiedUpdateInventory.Entry entry)
+    {
+        if (!File.Exists(path) || new FileInfo(path).Length != entry.Size) return false;
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        return string.Equals(Convert.ToHexStringLower(SHA256.HashData(stream)), entry.Sha256, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>How many files landed and how many managed leftovers were removed.</summary>
