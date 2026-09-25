@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
+using Nexa.Services.Files;
 using Nexa.Services.Minecraft.Process;
 using Nexa.Services.Tasks;
 using Nexa.Xsr;
@@ -34,10 +35,10 @@ public sealed class MinecraftLocalJarService(TaskCenterService tasks, XsrStateSt
         InstallLoader? loader = null;
         if (archive.GetEntry("install_profile.json") is { } profileEntry)
         {
-            JsonObject profile = ReadJson(profileEntry);
+            JsonObject profile = await ReadJsonAsync(profileEntry, token).ConfigureAwait(false);
             JsonObject? version = profile["versionInfo"] as JsonObject;
             if (version is null && archive.GetEntry(profile["json"]?.ToString().TrimStart('/') ?? "version.json") is { } versionEntry)
-                version = ReadJson(versionEntry);
+                version = await ReadJsonAsync(versionEntry, token).ConfigureAwait(false);
             game = profile["minecraft"]?.ToString() ?? profile["install"]?["minecraft"]?.ToString() ?? version?["inheritsFrom"]?.ToString();
             string? coordinate = profile["path"]?.ToString() ?? profile["install"]?["path"]?.ToString();
             var parts = coordinate?.Split(':');
@@ -168,13 +169,14 @@ public sealed class MinecraftLocalJarService(TaskCenterService tasks, XsrStateSt
         if (additions.Length == 0) throw new InvalidDataException("压缩包中没有可应用的补丁文件。");
         var replaced = additions.Select(entry => entry.FullName).ToHashSet(StringComparer.Ordinal);
         using var result = ZipFile.Open(destination, ZipArchiveMode.Create);
+        ArchiveReadBudget budget = new(2L * 1024 * 1024 * 1024);
         foreach (var entry in baseZip.Entries.Where(entry => entry.Name.Length > 0 && !replaced.Contains(entry.FullName)
             && !IsSignature(entry.FullName)).Concat(additions))
         {
             token.ThrowIfCancellationRequested();
             await using var input = entry.Open();
             await using var output = result.CreateEntry(entry.FullName).Open();
-            await input.CopyToAsync(output, token).ConfigureAwait(false);
+            await ArchiveReadBudget.CopyAsync(input, output, entry.Length, 512L * 1024 * 1024, budget, token).ConfigureAwait(false);
         }
     }
 
@@ -192,11 +194,15 @@ public sealed class MinecraftLocalJarService(TaskCenterService tasks, XsrStateSt
         if (new FileInfo(path).Length > 512L * 1024 * 1024) throw new InvalidDataException("JAR 文件超过 512 MiB。");
         return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
     }
-    private static JsonObject ReadJson(ZipArchiveEntry entry)
+    private static async Task<JsonObject> ReadJsonAsync(ZipArchiveEntry entry, CancellationToken token)
     {
         if (entry.Length > 4 * 1024 * 1024) throw new InvalidDataException("安装器清单过大。");
-        using var stream = entry.Open();
-        return JsonNode.Parse(stream) as JsonObject ?? throw new InvalidDataException("安装器清单无效。");
+        await using var stream = entry.Open();
+        using var buffer = new MemoryStream();
+        await ArchiveReadBudget.CopyAsync(stream, buffer, entry.Length, 4 * 1024 * 1024,
+            new ArchiveReadBudget(4 * 1024 * 1024), token).ConfigureAwait(false);
+        buffer.Position = 0;
+        return JsonNode.Parse(buffer) as JsonObject ?? throw new InvalidDataException("安装器清单无效。");
     }
     private static void ValidateArchive(ZipArchive archive)
     {

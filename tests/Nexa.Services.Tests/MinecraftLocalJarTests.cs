@@ -7,6 +7,67 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static async ValueTask LocalJarRejectsStoredLengthMismatch()
+    {
+        string temporary = CreateTempDirectory();
+        try
+        {
+            foreach (string target in new[] { "profile", "version", "patch", "core" })
+                foreach (uint declared in new[] { 1u, 999u })
+                {
+                    bool manifest = target is "profile" or "version";
+                    string path = Path.Combine(temporary, target + declared + ".jar");
+                    string name = target == "profile" ? "install_profile.json" : target == "version" ? "version.json" : "example.class";
+                    using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+                    {
+                        using (var writer = new StreamWriter(archive.CreateEntry(name, CompressionLevel.NoCompression).Open()))
+                            writer.Write(manifest ? "{\"minecraft\":\"1.20.1\",\"path\":\"net.minecraftforge:forge:1.20.1-47.2.0\"}" : "replacement");
+                        if (target == "version")
+                        {
+                            using var profile = new StreamWriter(archive.CreateEntry("install_profile.json").Open());
+                            profile.Write("{\"json\":\"/version.json\"}");
+                        }
+                    }
+                    byte[] data = await File.ReadAllBytesAsync(path);
+                    for (int index = 0; index <= data.Length - 46; index++)
+                        if (BitConverter.ToUInt32(data, index) == 0x02014b50)
+                        { BitConverter.GetBytes(declared).CopyTo(data, index + 24); break; }
+                    await File.WriteAllBytesAsync(path, data);
+                    if (manifest)
+                    {
+                        bool rejected = false;
+                        try { await MinecraftLocalJarService.InspectAsync(path); }
+                        catch (InvalidDataException) { rejected = true; }
+                        AssertTrue(rejected, "Installer manifest must enforce actual length before parsing.");
+                    }
+                    else
+                    {
+                        string root = Path.Combine(temporary, target + declared);
+                        string instance = CreateVersionDirectory(root, "test", new System.Text.Json.Nodes.JsonObject
+                        { ["id"] = "test", ["mainClass"] = "main", ["type"] = "release" });
+                        string core = Path.Combine(instance, "test.jar");
+                        if (target == "core")
+                        {
+                            File.Copy(path, core);
+                            File.Delete(path);
+                            WriteLocalJar(path, ("addition.class", "addition"));
+                        }
+                        else WriteLocalJar(core, ("example.class", "original"));
+                        byte[] original = await File.ReadAllBytesAsync(core);
+                        using var fixture = new InstallFixture(new FakeMetadata());
+                        var service = new MinecraftLocalJarService(fixture.Tasks, fixture.Store, fixture.Install);
+                        var artifact = await MinecraftLocalJarService.InspectAsync(path);
+                        AssertFalse((await service.ImportAsync(new(artifact, root, "test", LocalJarAction.CorePatch))).IsSuccess);
+                        byte[] after = await File.ReadAllBytesAsync(core);
+                        AssertTrue(original.SequenceEqual(after), "Failed patch must not replace original core.");
+                        AssertEqual(0, Directory.GetFiles(instance, "*.partial*").Length);
+                        AssertEqual(0, Directory.GetFiles(instance, "*.backup-*").Length);
+                    }
+                }
+        }
+        finally { Directory.Delete(temporary, true); }
+    }
+
     private static async ValueTask LocalJarImportsPreserveInstanceAndCore()
     {
         string temporary = Path.Combine(Path.GetTempPath(), "nexa-jar-" + Guid.NewGuid().ToString("N"));
