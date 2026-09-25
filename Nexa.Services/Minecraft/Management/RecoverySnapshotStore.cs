@@ -28,7 +28,11 @@ internal sealed class RecoverySnapshotStore
         _blobs = new(_directory);
     }
 
-    internal async Task<RecoverySnapshot> CaptureAsync(IReadOnlyList<RecoverySource> sources, string settingsDocument, CancellationToken token = default)
+    internal Task<RecoverySnapshot> CaptureAsync(IReadOnlyList<RecoverySource> sources, string settingsDocument, CancellationToken token = default) =>
+        CaptureAsync(sources, settingsDocument, null, token);
+
+    internal async Task<RecoverySnapshot> CaptureAsync(IReadOnlyList<RecoverySource> sources, string settingsDocument,
+        Func<CancellationToken, Task>? validatePlan, CancellationToken token = default)
     {
         if (sources.Count > MaxFiles) throw new InvalidDataException("快照文件数量超过限制。");
         JsonObject settings = ParseSettings(settingsDocument);
@@ -50,6 +54,7 @@ internal sealed class RecoverySnapshotStore
             var blob = await _blobs.StoreAsync(source, length, budget, token).ConfigureAwait(false);
             files.Add(new(sources[index], blob)); observed.Add((path, length, modified));
         }
+        if (validatePlan is not null) await validatePlan(token).ConfigureAwait(false);
         foreach (var item in observed)
         {
             token.ThrowIfCancellationRequested();
@@ -136,10 +141,19 @@ internal sealed class RecoverySnapshotStore
 
     private string ResolveSource(RecoverySource source)
     {
-        string root = source.Area switch { "instance" => _instance, "game" => _game, _ => throw new InvalidDataException("快照文件区域无效。") };
+        string root = source.Area switch
+        {
+            "instance" => _instance,
+            "game" => _game,
+            "root" when Directory.GetParent(_instance) is { Name: "versions", Parent: { } parent } => parent.FullName,
+            _ => throw new InvalidDataException("快照文件区域无效。")
+        };
         string relative = source.RelativePath.Replace('\\', '/');
         if (relative.Length == 0 || Path.IsPathRooted(relative) || relative.Split('/').Any(part => part.Length == 0 || part is "." or ".." || part.Contains(':') || part.TrimEnd(' ', '.') != part))
             throw new InvalidDataException("快照相对路径无效。");
+        if (source.Area == "root" && (relative.Split('/') is not ["versions", _, var file]
+            || !new[] { ".json", ".jar" }.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase)))
+            throw new InvalidDataException("快照依赖只能包含版本清单与核心文件。");
         string full = Path.GetFullPath(Path.Combine(root, relative));
         string comparisonPath = Path.GetRelativePath(_directory, full);
         if (comparisonPath == "." || !comparisonPath.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) && !Path.IsPathRooted(comparisonPath))

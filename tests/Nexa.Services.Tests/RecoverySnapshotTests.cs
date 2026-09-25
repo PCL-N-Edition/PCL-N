@@ -29,6 +29,13 @@ internal static partial class Program
             try { await store.CaptureAsync([sources[0], new("game", "missing.txt")], "{}"); throw new InvalidOperationException("Incomplete capture committed."); }
             catch (IOException) { }
             AssertEqual(first.Revision, (await store.ReadAsync())!.Revision);
+            try
+            {
+                await store.CaptureAsync(sources, "{}", validatePlan: _ => throw new IOException("Simulated capture plan changed."));
+                throw new InvalidOperationException("Changed file plan committed.");
+            }
+            catch (IOException) { }
+            AssertEqual(first.Revision, (await store.ReadAsync())!.Revision);
             using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
             try { await store.CaptureAsync(sources, "{}", cancelled.Token); throw new InvalidOperationException("Cancelled capture committed."); }
             catch (OperationCanceledException) { }
