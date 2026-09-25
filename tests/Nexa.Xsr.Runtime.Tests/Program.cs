@@ -4,6 +4,7 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("sidecar disposal cannot be undone by buffered snapshot", SidecarDisposalCannotBeUndoneByBufferedSnapshot),
         ("sidecar unsent cancellation preserves other requests", SidecarUnsentCancellationPreservesOtherRequests),
         ("sidecar deadlines include blocked writes", SidecarDeadlinesIncludeBlockedWrites),
         ("sidecar terminal paths complete all pending", SidecarTerminalPathsCompleteAllPending),

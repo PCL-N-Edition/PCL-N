@@ -54,3 +54,6 @@ State implementations require tests for revision ordering, snapshot consistency,
 
 Derived caches use an ordered vector of dependency revisions and availability, never the maximum global stamp. Dependency reads materialize derived parents first. Unavailable/Stale inputs propagate without computing a trusted new value; availability-only changes advance the derived revision. A contended computation that exhausts retries retains its prior value as Stale (or Unavailable without a value).
 
+
+Normal Sidecar shutdown, host disposal and failure invalidate dynamic mirror state and terminate pending exchanges. Initial snapshots and deltas share the termination boundary; buffered producers cannot restore availability or transition a closed session back to Ready/Active. Cached UI modules remain intact.
+

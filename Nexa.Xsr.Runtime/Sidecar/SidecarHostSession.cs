@@ -303,9 +303,14 @@ public sealed partial class SidecarHostSession : IDisposable
             throw Fail($"The snapshot failed: {exception.Message}");
         }
 
-        foreach ((SidecarRegistrationEntry entry, byte[] encodedValue) in collected.Values)
+        lock (_mirrorGate)
         {
-            _mirror.PublishFromWire(entry, encodedValue);
+            if (Volatile.Read(ref _stopped)) throw new SidecarProtocolException("The session ended before snapshot publication.");
+            foreach ((SidecarRegistrationEntry entry, byte[] encodedValue) in collected.Values)
+            {
+                if (Volatile.Read(ref _stopped)) throw new SidecarProtocolException("The session ended during snapshot publication.");
+                _mirror.PublishFromWire(entry, encodedValue);
+            }
         }
 
         await _connection.SendAsync(new SidecarFrame(
@@ -384,6 +389,7 @@ public sealed partial class SidecarHostSession : IDisposable
     public void Dispose()
     {
         EndPending();
+        Transition(SidecarSessionState.Closed);
         _connection.Dispose();
     }
 
@@ -404,6 +410,8 @@ public sealed partial class SidecarHostSession : IDisposable
     {
         lock (_gate)
         {
+            if (_stopped && state is not (SidecarSessionState.Closed or SidecarSessionState.Failed)) return;
+            if (_state == SidecarSessionState.Closed && state != SidecarSessionState.Closed) return;
             _state = state;
         }
 
@@ -421,6 +429,8 @@ public sealed partial class SidecarHostSession : IDisposable
     {
         lock (_gate)
         {
+            // Closing the transport after a normal shutdown is not a new session failure.
+            if (_stopped) return new SidecarProtocolException(message);
             _state = SidecarSessionState.Failed;
             _failureReason = message;
         }

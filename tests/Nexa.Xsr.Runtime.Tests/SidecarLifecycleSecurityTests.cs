@@ -5,6 +5,27 @@ namespace Nexa.Xsr.Runtime.Tests;
 
 internal static partial class Program
 {
+    private static async ValueTask SidecarDisposalCannotBeUndoneByBufferedSnapshot()
+    {
+        PausableSidecarStream? stream = null;
+        var (session, plugin) = await HandshakeAndRegister(wrap: inner => stream = new(inner));
+        using (session)
+        using (plugin)
+        {
+            stream!.BlockSnapshotEnd = true;
+            Task snapshot = SnapshotAndReady(session, plugin).AsTask();
+            await stream.SnapshotBuffered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            try { session.Dispose(); }
+            finally { stream.ReleaseSnapshot.TrySetResult(); }
+            try { await snapshot.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (Exception error) when (error is SidecarProtocolException or ObjectDisposedException or InvalidOperationException) { }
+            var mirror = session.Mirror!;
+            var progress = mirror.TryResolve(XsrSemanticId_Parse("plugin.download.progress"))!.Value;
+            AssertEqual(XsrStateAvailability.Unavailable, mirror.Store.Read<string>(progress).Availability);
+            AssertEqual(SidecarSessionState.Closed, session.State);
+        }
+    }
+
     private static async ValueTask SidecarUnsentCancellationPreservesOtherRequests()
     {
         var (session, plugin, _, _) = await ActivatedSession();
@@ -52,17 +73,21 @@ internal static partial class Program
 
     private static async ValueTask SidecarTerminalPathsCompleteAllPending()
     {
-        foreach (string ending in new[] { "dispose", "disconnect", "crash", "shutdown", "malformed" })
+        foreach (string ending in new[] { "dispose", "host-shutdown", "disconnect", "crash", "shutdown", "malformed" })
         {
-            var (session, plugin, _, loop) = await ActivatedSession();
+            var (session, plugin, mirror, loop) = await ActivatedSession();
             using (session)
             using (plugin)
             {
+                var progress = mirror.TryResolve(XsrSemanticId_Parse("plugin.download.progress"))!.Value;
+                await plugin.SendAsync(Delta("plugin.download.progress", "80"));
+                await WaitUntil(() => mirror.Store.Read<string>(progress).Value == "80");
                 var first = session.SendCommandAsync(XsrSemanticId_Parse("plugin.download.start")).AsTask();
                 var second = session.SendCommandAsync(XsrSemanticId_Parse("plugin.download.start")).AsTask();
                 var request = await DataPlaneReceiveAsync(plugin);
                 await DataPlaneReceiveAsync(plugin);
                 if (ending == "dispose") session.Dispose();
+                else if (ending == "host-shutdown") await session.ShutdownAsync();
                 else if (ending == "disconnect") plugin.Dispose();
                 else await plugin.SendAsync(new(SidecarProtocol.Version,
                     ending == "crash" ? SidecarMessageType.Crash : ending == "shutdown" ? SidecarMessageType.Shutdown : SidecarMessageType.CommandResult,
@@ -71,6 +96,9 @@ internal static partial class Program
                 AssertTrue(results.All(result => !result.IsSuccess));
                 AssertEqual(0, session.PendingCount);
                 await loop.WaitAsync(TimeSpan.FromSeconds(3));
+                AssertEqual(XsrStateAvailability.Unavailable, mirror.Store.Read<string>(progress).Availability);
+                AssertEqual("80", mirror.Store.Read<string>(progress).Value);
+                if (ending is "dispose" or "host-shutdown" or "shutdown") AssertEqual(SidecarSessionState.Closed, session.State);
             }
         }
     }
@@ -101,6 +129,9 @@ internal static partial class Program
     private sealed class PausableSidecarStream(Stream inner) : Stream
     {
         internal bool Blocked { get; set; }
+        internal bool BlockSnapshotEnd { get; set; }
+        internal TaskCompletionSource SnapshotBuffered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource ReleaseSnapshot { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public override bool CanRead => inner.CanRead;
         public override bool CanWrite => inner.CanWrite;
         public override bool CanSeek => false;
@@ -109,7 +140,18 @@ internal static partial class Program
         public override void Flush() => inner.Flush();
         public override Task FlushAsync(CancellationToken cancellationToken) => inner.FlushAsync(cancellationToken);
         public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
-        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => inner.ReadAsync(buffer, cancellationToken);
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            int count = await inner.ReadAsync(buffer, cancellationToken);
+            if (BlockSnapshotEnd && count == SidecarProtocol.HeaderSize
+                && System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(buffer.Span) == SidecarProtocol.Magic
+                && System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(buffer.Span[8..]) == (ushort)SidecarMessageType.StateSnapshotEnd)
+            {
+                SnapshotBuffered.TrySetResult();
+                await ReleaseSnapshot.Task.WaitAsync(cancellationToken);
+            }
+            return count;
+        }
         public override void Write(byte[] buffer, int offset, int count) => inner.Write(buffer, offset, count);
         public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {

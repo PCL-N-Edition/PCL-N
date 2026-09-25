@@ -18,6 +18,7 @@ public sealed partial class SidecarHostSession
     private readonly Dictionary<Guid, TaskCompletionSource<SidecarExchangeOutcome>> _pending = [];
     private readonly CancellationTokenSource _sessionEnded = new();
     private bool _stopped;
+    private readonly object _mirrorGate = new();
     private readonly int _maxPending;
     private ISidecarSessionEventObserver? _eventObserver;
 
@@ -248,7 +249,11 @@ public sealed partial class SidecarHostSession
             return;
         }
 
-        _mirror.PublishFromWire(entry, encodedValue);
+        lock (_mirrorGate)
+        {
+            if (Volatile.Read(ref _stopped)) return;
+            _mirror.PublishFromWire(entry, encodedValue);
+        }
     }
 
     private void DeliverEvent(ReadOnlySpan<byte> payload)
@@ -274,14 +279,22 @@ public sealed partial class SidecarHostSession
     private void FailWithMirrorUnavailable(string reason)
     {
         Fail(reason);
-        if (_mirror is { } mirror && _registration is { } registration)
+        InvalidateMirror();
+    }
+
+    private void InvalidateMirror()
+    {
+        lock (_mirrorGate)
         {
-            foreach (SidecarRegistrationEntry entry in registration.Entries
-                         .Where(entry => entry.Kind == SidecarRegistrationKind.State))
+            if (_mirror is { } mirror && _registration is { } registration)
             {
-                if (mirror.TryResolve(entry.SemanticId) is { } stateId)
+                foreach (SidecarRegistrationEntry entry in registration.Entries
+                             .Where(entry => entry.Kind == SidecarRegistrationKind.State))
                 {
-                    mirror.Store.MarkAvailability(stateId, XsrStateAvailability.Unavailable);
+                    if (mirror.TryResolve(entry.SemanticId) is { } stateId)
+                    {
+                        mirror.Store.MarkAvailability(stateId, XsrStateAvailability.Unavailable);
+                    }
                 }
             }
         }
@@ -329,11 +342,11 @@ public sealed partial class SidecarHostSession
         TaskCompletionSource<SidecarExchangeOutcome>[] pending;
         lock (_gate)
         {
-            if (_stopped) return;
+            pending = _stopped ? [] : _pending.Values.ToArray();
             _stopped = true;
-            pending = _pending.Values.ToArray();
             _pending.Clear();
         }
+        InvalidateMirror();
         foreach (var completion in pending) completion.TrySetResult(UnavailableExchange());
         _sessionEnded.Cancel();
     }
