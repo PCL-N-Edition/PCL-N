@@ -73,7 +73,7 @@ public sealed class MinecraftFolderImportService(TaskCenterService tasks)
     private static bool HasText(JsonElement element, string name) => element.TryGetProperty(name, out var value)
         && value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(value.GetString());
 
-    private static void ValidateInheritance(string manifest, string target, CancellationToken token)
+    private static void ValidateInheritance(string manifest, string target, CancellationToken token, string? stagedRoot = null)
     {
         var visited = new HashSet<string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         while (true)
@@ -87,13 +87,58 @@ public sealed class MinecraftFolderImportService(TaskCenterService tasks)
             if (!HasText(document.RootElement, "inheritsFrom")) return;
             string parent = document.RootElement.GetProperty("inheritsFrom").GetString()!;
             if (!MinecraftVersionPaths.IsSafeReference(parent)) throw new InvalidDataException("父版本名称无效。");
-            manifest = MinecraftVersionPaths.ResolveJsonPath(target, Path.GetDirectoryName(manifest), parent)
+            manifest = (stagedRoot is null ? null : MinecraftVersionPaths.ResolveJsonPath(stagedRoot, null, parent))
+                ?? MinecraftVersionPaths.ResolveJsonPath(target, Path.GetDirectoryName(manifest), parent)
                 ?? throw new InvalidDataException($"缺少父版本 {parent}，尚未导入。请先将父版本导入目标游戏目录。");
         }
     }
 
     public Task<XsrResult> ImportAsync(MinecraftFolderImportCommand command, CancellationToken cancellationToken = default) =>
         Task.Run(() => CopyAsync(command, cancellationToken), cancellationToken);
+
+    private static async Task StageParentsAsync(string manifest, string? sourceRoot, string target, string staging,
+        HashSet<string> visited, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (!IsVersionManifest(manifest)) throw new InvalidDataException("父版本描述无效，导入未提交。");
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(manifest, token).ConfigureAwait(false));
+        if (!HasText(document.RootElement, "inheritsFrom")) return;
+        string parent = document.RootElement.GetProperty("inheritsFrom").GetString()!;
+        if (!MinecraftVersionPaths.IsSafeReference(parent) || !visited.Add(parent) || visited.Count > 100)
+            throw new InvalidDataException("版本继承链存在无效名称、循环或过深，导入未提交。");
+        string? existing = MinecraftVersionPaths.ResolveJsonPath(target, null, parent);
+        string? source = sourceRoot is null ? null : MinecraftVersionPaths.ResolveJsonPath(sourceRoot, null, parent);
+        if (existing is not null)
+        {
+            if (!IsVersionManifest(existing)) throw new InvalidDataException("目标父版本描述无效。");
+            if (source is not null)
+            {
+                if (!IsVersionManifest(source)) throw new InvalidDataException("来源父版本描述无效。");
+                byte[] first = await File.ReadAllBytesAsync(source, token).ConfigureAwait(false);
+                byte[] second = await File.ReadAllBytesAsync(existing, token).ConfigureAwait(false);
+                if (!first.SequenceEqual(second)) throw new InvalidDataException($"父版本 {parent} 与目标目录中的版本冲突，未覆盖已有文件。");
+            }
+            await StageParentsAsync(existing, sourceRoot, target, staging, visited, token).ConfigureAwait(false);
+            return;
+        }
+        if (source is null) throw new InvalidDataException($"缺少父版本 {parent}，来源和目标目录均未找到，导入未提交。");
+        if (!IsVersionManifest(source)) throw new InvalidDataException("来源父版本描述无效。");
+        string destination = Path.Combine(staging, "versions", parent);
+        Directory.CreateDirectory(destination);
+        string copied = Path.Combine(destination, parent + ".json");
+        await CopyFileAsync(source, copied, token).ConfigureAwait(false);
+        string jar = Path.Combine(Path.GetDirectoryName(source)!, parent + ".jar");
+        if (File.Exists(jar)) await CopyFileAsync(jar, Path.Combine(destination, parent + ".jar"), token).ConfigureAwait(false);
+        await StageParentsAsync(copied, sourceRoot, target, staging, visited, token).ConfigureAwait(false);
+    }
+
+    private static async Task CopyFileAsync(string source, string target, CancellationToken token)
+    {
+        RejectLinks(source);
+        await using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
+        await using var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true);
+        await input.CopyToAsync(output, token).ConfigureAwait(false);
+    }
 
     private async Task<XsrResult> CopyAsync(MinecraftFolderImportCommand command, CancellationToken cancellationToken)
     {
@@ -115,7 +160,12 @@ public sealed class MinecraftFolderImportService(TaskCenterService tasks)
             RejectLinks(versions);
             string destination = Path.Combine(versions, source.Name);
             if (Path.Exists(destination)) throw new IOException("目标目录中已存在同名版本，未覆盖任何文件。");
-            ValidateInheritance(Path.Combine(source.Path, source.Name + ".json"), target, token);
+            staging = Path.Combine(target, ".nexa-import-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path.Combine(staging, "versions"));
+            var sourceParent = Directory.GetParent(source.Path);
+            string? sourceRoot = sourceParent?.Name == "versions" ? sourceParent.Parent?.FullName : null;
+            await StageParentsAsync(Path.Combine(source.Path, source.Name + ".json"), sourceRoot, target, staging,
+                new HashSet<string>(MinecraftLibraryService.PathComparer) { source.Name }, token).ConfigureAwait(false);
             // Collect without following links, including links higher in either root path.
             var files = new List<(string Path, string Relative)>();
             var directories = new List<string>();
@@ -135,9 +185,9 @@ public sealed class MinecraftFolderImportService(TaskCenterService tasks)
                     if (files.Count + directories.Count > 100_000) throw new InvalidDataException("版本目录中的文件数量过多。");
                 }
             }
-            staging = Path.Combine(target, ".nexa-import-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(staging);
-            foreach (string directory in directories) Directory.CreateDirectory(Path.Combine(staging, directory));
+            string leafStaging = Path.Combine(staging, "versions", source.Name);
+            Directory.CreateDirectory(leafStaging);
+            foreach (string directory in directories) Directory.CreateDirectory(Path.Combine(leafStaging, directory));
             int count = 0;
             long lastReport = System.Diagnostics.Stopwatch.GetTimestamp();
             foreach (var file in files)
@@ -145,7 +195,7 @@ public sealed class MinecraftFolderImportService(TaskCenterService tasks)
                 token.ThrowIfCancellationRequested();
                 RejectLinks(file.Path);
                 await using var input = new FileStream(file.Path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
-                await using var output = new FileStream(Path.Combine(staging, file.Relative), FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true);
+                await using var output = new FileStream(Path.Combine(leafStaging, file.Relative), FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true);
                 await input.CopyToAsync(output, token).ConfigureAwait(false);
                 count++;
                 if (count == files.Count || System.Diagnostics.Stopwatch.GetElapsedTime(lastReport).TotalMilliseconds >= 100)
@@ -155,14 +205,20 @@ public sealed class MinecraftFolderImportService(TaskCenterService tasks)
                 }
             }
             token.ThrowIfCancellationRequested();
-            if (!IsVersionManifest(Path.Combine(staging, source.Name + ".json")))
+            if (!IsVersionManifest(Path.Combine(leafStaging, source.Name + ".json")))
                 throw new InvalidDataException("复制期间版本描述发生变化，导入未提交。");
-            ValidateInheritance(Path.Combine(staging, source.Name + ".json"), target, token);
+            ValidateInheritance(Path.Combine(leafStaging, source.Name + ".json"), target, token, staging);
             // Recheck the destination immediately before committing; Move never overwrites.
             RejectLinks(target);
             RejectLinks(versions);
-            Directory.Move(staging, destination);
-            staging = null;
+            foreach (string dependency in Directory.EnumerateDirectories(Path.Combine(staging, "versions")))
+            {
+                if (MinecraftLibraryService.PathComparer.Equals(dependency, leafStaging)) continue;
+                token.ThrowIfCancellationRequested();
+                Directory.Move(dependency, Path.Combine(versions, Path.GetFileName(dependency)));
+            }
+            ValidateInheritance(Path.Combine(leafStaging, source.Name + ".json"), target, token);
+            Directory.Move(leafStaging, destination);
             task.Complete("版本已导入，源文件保留。");
             return XsrResult.Success();
         }

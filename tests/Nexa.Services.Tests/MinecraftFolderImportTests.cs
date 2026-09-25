@@ -5,6 +5,53 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static async ValueTask FolderImportCopiesOnlyRequiredParentArtifacts()
+    {
+        string temporary = CreateTempDirectory();
+        try
+        {
+            string sourceRoot = Path.Combine(temporary, "source"), target = Path.Combine(temporary, "target");
+            Directory.CreateDirectory(target);
+            string leaf = CreateVersionDirectory(sourceRoot, "leaf", new System.Text.Json.Nodes.JsonObject
+            { ["id"] = "leaf", ["inheritsFrom"] = "base" });
+            string parent = CreateVersionDirectory(sourceRoot, "base", new System.Text.Json.Nodes.JsonObject
+            { ["id"] = "base", ["mainClass"] = "main" });
+            await File.WriteAllTextAsync(Path.Combine(parent, "base.jar"), "core");
+            Directory.CreateDirectory(Path.Combine(parent, "saves"));
+            await File.WriteAllTextAsync(Path.Combine(parent, "saves", "private-world"), "do not copy");
+            var service = new MinecraftFolderImportService(NewTaskCenter(out _));
+            var result = await service.ImportAsync(new(leaf, target));
+            AssertTrue(result.IsSuccess, result.Error?.Message ?? "import");
+            AssertEqual("core", await File.ReadAllTextAsync(Path.Combine(target, "versions", "base", "base.jar")));
+            AssertFalse(Directory.Exists(Path.Combine(target, "versions", "base", "saves")));
+            var instance = (await new Nexa.Services.Minecraft.MinecraftInstanceDiscovery().DiscoverAsync(target)).Single(item => item.Id == "leaf");
+            var resolved = await Nexa.Services.Minecraft.Launch.MinecraftVersionJsonReader.ResolveAsync(instance, target);
+            AssertEqual(1, resolved.Inherited.Count);
+            AssertEqual(0, Directory.GetDirectories(target, ".nexa-import-*").Length);
+            string secondLeaf = CreateVersionDirectory(sourceRoot, "second", new System.Text.Json.Nodes.JsonObject
+            { ["id"] = "second", ["inheritsFrom"] = "base" });
+            AssertTrue((await service.ImportAsync(new(secondLeaf, target))).IsSuccess);
+            AssertEqual("core", await File.ReadAllTextAsync(Path.Combine(target, "versions", "base", "base.jar")));
+
+            string conflict = Path.Combine(temporary, "conflict");
+            string conflictParent = CreateVersionDirectory(conflict, "base", new System.Text.Json.Nodes.JsonObject
+            { ["id"] = "base", ["mainClass"] = "different.Main" });
+            AssertFalse((await service.ImportAsync(new(leaf, conflict))).IsSuccess);
+            AssertFalse(Directory.Exists(Path.Combine(conflict, "versions", "leaf")));
+            AssertTrue((await File.ReadAllTextAsync(Path.Combine(conflictParent, "base.json"))).Contains("different.Main", StringComparison.Ordinal));
+            AssertEqual(0, Directory.GetDirectories(conflict, ".nexa-import-*").Length);
+            foreach (string ancestor in new[] { "missing", "leaf" })
+            {
+                await File.WriteAllTextAsync(Path.Combine(parent, "base.json"), "{\"id\":\"base\",\"inheritsFrom\":\"" + ancestor + "\"}");
+                string failedRoot = Path.Combine(temporary, ancestor); Directory.CreateDirectory(failedRoot);
+                AssertFalse((await service.ImportAsync(new(leaf, failedRoot))).IsSuccess);
+                AssertEqual(0, Directory.GetDirectories(Path.Combine(failedRoot, "versions")).Length);
+                AssertEqual(0, Directory.GetDirectories(failedRoot, ".nexa-import-*").Length);
+            }
+        }
+        finally { Directory.Delete(temporary, true); }
+    }
+
     private static async ValueTask FolderImportRequiresResolvableParents()
     {
         string temporary = Path.Combine(Path.GetTempPath(), "nexa-parent-" + Guid.NewGuid().ToString("N"));

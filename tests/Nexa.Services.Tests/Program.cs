@@ -66,6 +66,7 @@ internal static partial class Program
         ("rollouts keep cohorts and fail closed", RolloutsKeepCohortsAndFailClosed),
         ("Nexa updates reject legacy and wrong platform", NexaUpdatesRejectLegacyAndWrongPlatform),
         ("folder import requires resolvable parents", FolderImportRequiresResolvableParents),
+        ("folder import copies only required parent artifacts", FolderImportCopiesOnlyRequiredParentArtifacts),
         ("task center serializes terminal reuse and dismiss races", TaskCenterSerializesRaces),
         ("task center cancel routes to owner token", TaskCenterCancelRoutesToOwnerToken),
         ("task center rejects cancel of protected tasks", TaskCenterRejectsCancelOfProtectedTasks),
