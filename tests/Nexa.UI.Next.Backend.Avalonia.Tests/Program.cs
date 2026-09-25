@@ -28,6 +28,7 @@ internal static partial class Program
         ("capsules respond to focus press and disabled state", CapsulesRespondToFocusPressAndDisabledState),
         ("capsule spring is no bounce and preserves reversal velocity", CapsuleSpringPreservesReversalVelocity),
         ("feedback overlays expose live semantics and honor reduced motion", FeedbackOverlaysExposeLiveSemanticsAndReducedMotion),
+        ("post-navigation double click respects time position button and cancellation", PostNavigationDoubleClickBoundaries),
         ("lifetime: splash never owns the process and main window close terminates", LifetimeSplashNeverOwnsProcessAndMainWindowCloseTerminates),
     ];
 
@@ -42,6 +43,27 @@ internal static partial class Program
 
         Console.WriteLine($"Avalonia scene backend tests passed: {TestCases.Length}.");
         return 0;
+    }
+
+    private static void PostNavigationDoubleClickBoundaries()
+    {
+        var clicks = new PostNavigationDoubleClick();
+        Action open = () => { };
+        TimeSpan interval = TimeSpan.FromMilliseconds(500);
+        clicks.Press(new(20, 30), 100, true, interval, 2, 2);
+        clicks.Arm(open);
+        AssertEqual(open, clicks.Press(new(21, 31), 200, true, interval, 2, 2));
+        AssertTrue(clicks.Press(new(21, 31), 250, true, interval, 2, 2) is null);
+        clicks.Arm(open);
+        AssertTrue(clicks.Press(new(21, 31), 751, true, interval, 2, 2) is null);
+        clicks.Arm(open);
+        AssertTrue(clicks.Press(new(30, 31), 800, true, interval, 2, 2) is null);
+        clicks.Arm(open);
+        AssertTrue(clicks.Press(new(30, 31), 850, false, interval, 2, 2) is null);
+        clicks.Press(new(30, 31), 900, true, interval, 2, 2);
+        clicks.Arm(open);
+        clicks.Cancel();
+        AssertTrue(clicks.Press(new(30, 31), 950, true, interval, 2, 2) is null);
     }
 
     private static void AutomationInvokeAndFocusRouteThroughRenderer()
@@ -377,6 +399,7 @@ internal static partial class Program
             await Task.Delay(30).ConfigureAwait(true);
             VerifyAccessibleContentAndNativeFocus(window, shell, surface);
             VerifyPointerCursorProjection(window, shell, surface);
+            VerifyPostNavigationDoubleClickRouting(window);
             await VerifyOverlayReorderAndReentry(shell, surface);
             await VerifyPlatformClipboard(window).ConfigureAwait(true);
             VerifyNativeTextEditing(window, shell, surface);
@@ -455,6 +478,36 @@ internal static partial class Program
         finally
         {
             window.Close();
+        }
+    }
+
+    private static void VerifyPostNavigationDoubleClickRouting(AvaloniaUiShellWindow window)
+    {
+        var actions = new AvaloniaUiPlatformActions();
+        actions.Attach(window);
+        int opened = 0, pressed = 0, released = 0;
+        void OnPress(object? sender, PointerPressedEventArgs e) => pressed++;
+        void OnRelease(object? sender, PointerReleasedEventArgs e) => released++;
+        window.Surface.AddHandler(InputElement.PointerPressedEvent, OnPress);
+        window.Surface.AddHandler(InputElement.PointerReleasedEvent, OnRelease);
+        try
+        {
+            var point = window.Surface.TranslatePoint(new Point(400, 350), window)!.Value;
+            window.MouseDown(point, MouseButton.Left);
+            window.MouseUp(point, MouseButton.Left);
+            actions.CancelPostNavigationDoubleClick();
+            actions.ArmPostNavigationDoubleClick(() => opened++);
+            int beforePress = pressed, beforeRelease = released;
+            window.MouseDown(point, MouseButton.Left);
+            window.MouseUp(point, MouseButton.Left);
+            AssertEqual(1, opened);
+            AssertEqual(beforePress, pressed);
+            AssertEqual(beforeRelease, released);
+        }
+        finally
+        {
+            window.Surface.RemoveHandler(InputElement.PointerPressedEvent, OnPress);
+            window.Surface.RemoveHandler(InputElement.PointerReleasedEvent, OnRelease);
         }
     }
 

@@ -52,7 +52,7 @@ internal static partial class Program
         ("install catalog returns to selected game and loader", InstallCatalogReturnsToSelectedGameAndLoader),
         ("install catalog virtualizes and prefetches off UI thread", InstallCatalogVirtualizesAndPrefetchesOffUiThread),
         ("Windows property store roundtrips the game AUMID", WindowPropertyStoreRoundTripsAppId),
-        ("version double click opens directory without selecting", VersionDoubleClickOpensDirectoryWithoutSelecting),
+        ("version click returns immediately and double click opens directory", VersionClickReturnsImmediatelyAndDoubleClickOpensDirectory),
         ("version selection uses the captured directory for launch and restores each selection", VersionSelectionUsesDirectoryQualifiedLaunch),
         ("version list remains compact searchable and scrollable with distinct icons", VersionListKeepsCompactGeometryAndIcons),
         ("directory pickers cannot publish after leaving the version page", VersionDirectoryPickerDiscardsLateResult),
@@ -718,7 +718,6 @@ internal static partial class Program
         AssertTrue(fixture.Shell.Renderer.PointerPressed(top));
         AssertTrue(fixture.Shell.Renderer.PointerReleased(top));
         AssertEqual("ui.tasks.open", emitted);
-
 
         // The presented fill is the renderer-owned catch-up value; with the animation clock
         // parked it must still be clamped between zero and the target.

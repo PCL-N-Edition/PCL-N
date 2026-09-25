@@ -144,49 +144,39 @@ internal static partial class Program
         AssertEqual(original, ReadCell(fixture.Store, LaunchPageState.InstanceDirectoryKey));
     }
 
-    private static void VersionDoubleClickOpensDirectoryWithoutSelecting()
+    private static void VersionClickReturnsImmediatelyAndDoubleClickOpensDirectory()
     {
         var effects = new RecordingVersionDirectoryEffects();
         using var fixture = new LaunchPageFixture(new ImmediateInstanceSource([Instance("first"), Instance("second")]), directoryEffects: effects);
         fixture.Controller.WaitUntilIdle().GetAwaiter().GetResult();
-        // Use the product entry so the test follows the actual navigation contract.
-        var scene = fixture.Shell.Render(new(850, 500));
-        if (fixture.Shell.Stage.Navigation.Current != fixture.Controller.Versions.Page)
-        {
-            fixture.Shell.Renderer.Activate(FindByKey(fixture.Shell, scene, "InstanceListButton").Entity);
-            scene = fixture.Shell.Render(new(850, 500));
-        }
-        var row = FindByKey(fixture.Shell, scene, "LibraryRow:version:second");
-        string before = ReadCell(fixture.Store, LaunchPageState.SelectedInstanceKey);
+        var shell = fixture.Shell;
+        var scene = shell.Render(new(850, 500));
+        shell.Renderer.Activate(FindByKey(shell, scene, "InstanceListButton").Entity);
+        scene = shell.Render(new(850, 500));
+        var row = FindByKey(shell, scene, "LibraryRow:version:second");
         Emit(fixture.Intents, "ui.versions.select", row.Entity);
-        Emit(fixture.Intents, "ui.versions.select", row.Entity);
+        // No idle wait and no timer advancement: one render returns home.
+        scene = shell.Render(new(850, 500));
+        AssertTrue(shell.Stage.Navigation.Current != fixture.Controller.Versions.Page);
+        AssertEqual("second", ReadCell(fixture.Store, LaunchPageState.SelectedInstanceKey));
+        AssertEqual("second", FindByKey(shell, scene, "VersionName").Text);
+        AssertEqual(0, effects.Opened.Count);
+        AssertTrue(effects.SecondClick is not null);
+        effects.SecondClick!(); // Native input invokes this after the original row disappeared.
         fixture.Controller.Versions.WaitUntilIdle().GetAwaiter().GetResult();
         AssertEqual(1, effects.Opened.Count);
-        AssertEqual(before, ReadCell(fixture.Store, LaunchPageState.SelectedInstanceKey));
-        AssertEqual(fixture.Controller.Versions.Page, fixture.Shell.Stage.Navigation.Current);
-        Emit(fixture.Intents, "ui.versions.select", row.Entity);
-        Emit(fixture.Intents, "ui.page.back");
-        fixture.Controller.Versions.WaitUntilIdle().GetAwaiter().GetResult();
-        AssertEqual(before, ReadCell(fixture.Store, LaunchPageState.SelectedInstanceKey));
-        scene = fixture.Shell.Render(new(850, 500));
-        AssertTrue(fixture.Shell.Renderer.Activate(FindByKey(fixture.Shell, scene, "InstanceListButton").Entity));
-        scene = fixture.Shell.Render(new(850, 500));
-        row = FindByKey(fixture.Shell, scene, "LibraryRow:version:second");
-        Emit(fixture.Intents, "ui.versions.select", row.Entity);
-        fixture.Controller.Versions.WaitUntilIdle().GetAwaiter().GetResult();
-        fixture.Shell.Render(new(850, 500));
+        AssertTrue(shell.Stage.Navigation.Current != fixture.Controller.Versions.Page);
         AssertEqual("second", ReadCell(fixture.Store, LaunchPageState.SelectedInstanceKey));
-        AssertTrue(fixture.Shell.Stage.Navigation.Current != fixture.Controller.Versions.Page);
     }
 
     private sealed class RecordingVersionDirectoryEffects : IVersionDirectoryEffects
     {
         public List<string> Opened { get; } = [];
-        public TimeSpan DoubleClickInterval => TimeSpan.FromMilliseconds(100);
+        public Action? SecondClick { get; private set; }
+        public void ArmDirectoryDoubleClick(Action action) => SecondClick = action;
         public Task<string?> PickDirectoryAsync() => Task.FromResult<string?>(null);
         public Task OpenDirectoryAsync(string directory) { Opened.Add(directory); return Task.CompletedTask; }
     }
-
     private sealed class DeferredDirectoryPicker : IVersionDirectoryEffects
     {
         public TaskCompletionSource<string?> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

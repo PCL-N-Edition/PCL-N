@@ -12,13 +12,15 @@ namespace Nexa.Desktop.Ui;
 internal interface IVersionDirectoryEffects
 {
     Task<string?> PickDirectoryAsync();
-    TimeSpan DoubleClickInterval => TimeSpan.FromMilliseconds(500);
+    void ArmDirectoryDoubleClick(Action openDirectory) { }
+    void CancelDirectoryDoubleClick() { }
     Task OpenDirectoryAsync(string directory) => Task.CompletedTask;
 }
 internal sealed class NativeVersionDirectoryEffects(AvaloniaUiPlatformActions actions) : IVersionDirectoryEffects
 {
     public Task<string?> PickDirectoryAsync() => actions.PickDirectoryAsync();
-    public TimeSpan DoubleClickInterval => AvaloniaUiPlatformActions.DoubleClickInterval;
+    public void ArmDirectoryDoubleClick(Action openDirectory) => actions.ArmPostNavigationDoubleClick(openDirectory);
+    public void CancelDirectoryDoubleClick() => actions.CancelPostNavigationDoubleClick();
     public Task OpenDirectoryAsync(string directory) { actions.OpenDirectory(directory); return Task.CompletedTask; }
 }
 
@@ -67,9 +69,6 @@ internal sealed class VersionSelectionController : IDisposable
     private string? _pendingVersionPage;
     private readonly Dictionary<XsrUiEntityId, (string Root, string Id)> _actions = [];
     private Task _pending = Task.CompletedTask;
-    private CancellationTokenSource? _selectionDelay;
-    private (string Root, string Id)? _pendingClick;
-    private long _clickStarted;
 
     public VersionSelectionController(XsrUiShell shell, DesktopUiIntentSink intents, XsrCommandRouter commands,
         XsrStateStore store, DesktopFeedbackService feedback, IVersionDirectoryEffects? effects = null)
@@ -102,7 +101,7 @@ internal sealed class VersionSelectionController : IDisposable
     {
         if (_disposed || _shell.Stage.Navigation.Current != Page) return;
         string command = e.Intent.Command.Value;
-        if (command != "ui.versions.select") CancelPendingClick();
+
         if (command is "ui.versions.modify" or "ui.versions.settings" or "ui.versions.delete"
             && _actions.TryGetValue(e.Intent.Source, out var target))
         {
@@ -135,26 +134,16 @@ internal sealed class VersionSelectionController : IDisposable
         else if (command == "ui.versions.select" && _versions.TryGetValue(e.Intent.Source, out var version))
         {
             _pendingVersionPage = null;
-            if (_pendingClick == version && _selectionDelay is { IsCancellationRequested: false }
-                && System.Diagnostics.Stopwatch.GetElapsedTime(_clickStarted) <= (_effects?.DoubleClickInterval ?? TimeSpan.FromMilliseconds(500)))
-            {
-                CancelPendingClick();
-                string? directory = Snapshot.Instances.FirstOrDefault(item => item.Id == version.Id)?.DirectoryPath;
-                if (directory is not null && _effects is not null) _pending = OpenVersionDirectoryAsync(directory);
-            }
-            else
-            {
-                CancelPendingClick();
-                if (IsKeyboard(e.Intent.Source))
-                    _pending = Dispatch(MinecraftLibraryRoutes.Select, new MinecraftLibrarySelectCommand(version.Root, version.Id), returnHome: true);
-                else
+            _effects?.CancelDirectoryDoubleClick();
+
+            string? directory = Snapshot.Instances.FirstOrDefault(item => item.Id == version.Id)?.DirectoryPath;
+            if (!IsKeyboard(e.Intent.Source) && directory is not null && _effects is not null)
+                _effects.ArmDirectoryDoubleClick(() =>
                 {
-                    _pendingClick = version;
-                    _clickStarted = System.Diagnostics.Stopwatch.GetTimestamp();
-                    _selectionDelay = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-                    _pending = SelectAfterDoubleClickAsync(version, Interlocked.Read(ref _viewEpoch), _selectionDelay.Token);
-                }
-            }
+                    if (!_disposed) _pending = OpenVersionDirectoryAsync(directory);
+                });
+            _pending = Dispatch(MinecraftLibraryRoutes.Select,
+                new MinecraftLibrarySelectCommand(version.Root, version.Id), returnHome: true);
         }
         else if (command == "ui.versions.directory" && _directories.TryGetValue(e.Intent.Source, out string? root))
             _pending = Dispatch(MinecraftLibraryRoutes.Directory, new MinecraftLibraryDirectoryCommand(root), closeChooser: true);
@@ -174,22 +163,6 @@ internal sealed class VersionSelectionController : IDisposable
                 _shell.Tree.GetComponent<XsrUiTextInput>(_entities["LibraryNameInput"])!.ReadDraft()), closeChooser: true);
         else if (command == "ui.versions.rename-cancel")
         { _editingRoot = null; Publish("rename.visible", false); FocusDirectory(); }
-    }
-
-    private void CancelPendingClick()
-    {
-        _selectionDelay?.Cancel(); _selectionDelay?.Dispose(); _selectionDelay = null; _pendingClick = null;
-    }
-
-    private async Task SelectAfterDoubleClickAsync((string Root, string Id) version, long epoch, CancellationToken token)
-    {
-        try
-        {
-            await Task.Delay(_effects?.DoubleClickInterval ?? TimeSpan.FromMilliseconds(500), token).ConfigureAwait(false);
-            if (!token.IsCancellationRequested && !_disposed && epoch == Interlocked.Read(ref _viewEpoch))
-                await Dispatch(MinecraftLibraryRoutes.Select, new MinecraftLibrarySelectCommand(version.Root, version.Id), returnHome: true).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
     }
 
     private async Task OpenVersionDirectoryAsync(string directory)
@@ -223,6 +196,7 @@ internal sealed class VersionSelectionController : IDisposable
         if (_disposed) return;
         if (!result.IsSuccess)
         {
+            if (route == MinecraftLibraryRoutes.Select) _effects?.CancelDirectoryDoubleClick();
             _pendingVersionPage = null;
             if (result.Error?.Code != XsrRuntimeErrors.Cancelled().Code)
                 _feedback.Error(route == MinecraftLibraryRoutes.Delete ? result.Error?.Message ?? "无法删除此版本。"
@@ -241,7 +215,7 @@ internal sealed class VersionSelectionController : IDisposable
     private void OnFrame(object? sender, EventArgs e)
     {
         bool visible = _shell.Stage.Navigation.Current == Page;
-        if (_wasVisible && !visible) { Interlocked.Increment(ref _viewEpoch); CancelPendingClick(); }
+        if (_wasVisible && !visible) { Interlocked.Increment(ref _viewEpoch); }
         _wasVisible = visible;
         if (!visible) { CloseDropdown(false); Interlocked.Exchange(ref _pendingCloseChooser, 0); return; }
         int pending = Interlocked.Exchange(ref _pendingCloseChooser, 0);
@@ -494,7 +468,7 @@ internal sealed class VersionSelectionController : IDisposable
     }
     public void Dispose()
     {
-        CancelPendingClick();
+
         CloseDropdown(false);
         _shell.Tree.Destroy(_dropdown);
         _disposed = true; Interlocked.Increment(ref _viewEpoch); _lifetime.Cancel();

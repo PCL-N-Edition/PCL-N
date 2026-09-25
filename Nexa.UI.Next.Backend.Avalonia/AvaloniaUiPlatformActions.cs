@@ -14,14 +14,18 @@ public enum AvaloniaUiInputKind { Keyboard, Mouse, Touch, Controller }
 public sealed class AvaloniaUiPlatformActions
 {
     private TopLevel? _owner;
+    private readonly PostNavigationDoubleClick _doubleClick = new();
+    private IPointer? _consumedPointer;
     internal void Attach(TopLevel owner)
     {
         _owner = owner;
         owner.AddHandler(InputElement.PointerPressedEvent, OnPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+        owner.AddHandler(InputElement.PointerReleasedEvent, OnPointerReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
         owner.AddHandler(InputElement.KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         DragDrop.SetAllowDrop(owner, true);
         DragDrop.AddDragOverHandler(owner, OnDragOver);
         DragDrop.AddDropHandler(owner, OnDrop);
+        if (owner is Window window) window.Deactivated += (_, _) => _doubleClick.Cancel();
     }
 
     public event Action<AvaloniaUiInputKind>? InputObserved;
@@ -72,12 +76,41 @@ public sealed class AvaloniaUiPlatformActions
     /// <summary>Called by a platform gamepad bridge after it has translated native input.</summary>
     public void ReportControllerInput() => InputObserved?.Invoke(AvaloniaUiInputKind.Controller);
 
-    private void OnPointerPressed(object? sender, PointerPressedEventArgs args) => InputObserved?.Invoke(
-        args.Pointer.Type is PointerType.Touch or PointerType.Pen
-            ? AvaloniaUiInputKind.Touch
-            : AvaloniaUiInputKind.Mouse);
+    /// <summary>Recognizes a second click even after the first click navigated away.</summary>
+    public void ArmPostNavigationDoubleClick(Action action) => _doubleClick.Arm(action);
+    public void CancelPostNavigationDoubleClick() => _doubleClick.Cancel();
 
-    private void OnKeyDown(object? sender, KeyEventArgs args) => InputObserved?.Invoke(AvaloniaUiInputKind.Keyboard);
+    private void OnPointerPressed(object? sender, PointerPressedEventArgs args)
+    {
+        InputObserved?.Invoke(args.Pointer.Type is PointerType.Touch or PointerType.Pen
+            ? AvaloniaUiInputKind.Touch : AvaloniaUiInputKind.Mouse);
+        var point = args.GetPosition(_owner);
+        bool primary = args.Pointer.Type == PointerType.Mouse && args.GetCurrentPoint(_owner).Properties.IsLeftButtonPressed;
+        double scale = _owner?.RenderScaling ?? 1;
+        double width = OperatingSystem.IsWindows() ? GetSystemMetrics(36) / (2 * scale) : 4;
+        double height = OperatingSystem.IsWindows() ? GetSystemMetrics(37) / (2 * scale) : 4;
+        Action? action = _doubleClick.Press(point, Environment.TickCount64, primary, DoubleClickInterval, width, height);
+        if (action is null) return;
+        _consumedPointer = args.Pointer;
+        args.Handled = true;
+        action();
+    }
+
+    private void OnPointerReleased(object? sender, PointerReleasedEventArgs args)
+    {
+        if (_consumedPointer != args.Pointer) return;
+        _consumedPointer = null;
+        args.Handled = true;
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int index);
+
+    private void OnKeyDown(object? sender, KeyEventArgs args)
+    {
+        _doubleClick.Cancel();
+        InputObserved?.Invoke(AvaloniaUiInputKind.Keyboard);
+    }
 
     public void OpenHttpsUri(Uri uri)
     {
