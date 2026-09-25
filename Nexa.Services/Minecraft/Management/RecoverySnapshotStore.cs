@@ -105,6 +105,13 @@ internal sealed class RecoverySnapshotStore
         RecoveryBlobStore.CheckLinks(_manifest);
         if (!File.Exists(_manifest)) return null;
         await using var lease = await _blobs.AcquireManifestLeaseAsync(token).ConfigureAwait(false);
+        return await ReadUnderManifestLeaseAsync(token).ConfigureAwait(false);
+    }
+
+    // Caller owns the manifest lease through preparation, preventing capture/GC races.
+    internal async Task<RecoverySnapshot?> ReadUnderManifestLeaseAsync(CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
         RecoveryBlobStore.CheckLinks(_manifest);
         if (!File.Exists(_manifest)) return null;
         await using var input = new FileStream(_manifest, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
@@ -115,6 +122,11 @@ internal sealed class RecoverySnapshotStore
         while (total < bytes.Length && (read = await input.ReadAsync(bytes.AsMemory(total), token).ConfigureAwait(false)) != 0) total += read;
         if (total != length) throw new InvalidDataException("快照清单读取期间发生变化。");
         var document = JsonNode.Parse(bytes.AsSpan(0, total)) as JsonObject ?? throw new InvalidDataException("快照清单无效。");
+        return DecodeManifest(document);
+    }
+
+    internal RecoverySnapshot DecodeManifest(JsonObject document)
+    {
         if (document["version"]?.GetValue<int>() != 1
             || !MinecraftLibraryService.PathComparer.Equals(document["instance"]?.GetValue<string>(), _instance)
             || !MinecraftLibraryService.PathComparer.Equals(document["game"]?.GetValue<string>(), _game)
