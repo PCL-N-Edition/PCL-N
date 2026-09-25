@@ -17,6 +17,7 @@ The clean-slate branch now has a compilable .NET 10 solution that locks the requ
 | PXML | `Nexa.Pxml.Compiler`, `Runtime`, `Generators` | build-time compilation and runtime artifact loading |
 | Sidecar Host | `Nexa.Sidecar.Protocol`, `Nexa.Sidecar.Transport` | process-neutral wire contract and local IPC |
 | Host | `Nexa.Desktop` | process bootstrap and composition root only |
+| JVM Host | `Nexa.Jvm.Host` | isolated JNI executable; Services bootstrap contract only; no UI dependencies |
 
 The projects intentionally contain no speculative public API. Their project descriptions, references, executable/library roles, and generator markers are the initial enforceable contract. Capability APIs arrive with their first closed implementation unit.
 

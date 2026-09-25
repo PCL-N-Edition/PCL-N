@@ -37,6 +37,7 @@
     <Project Path="Nexa.Sidecar.Transport/Nexa.Sidecar.Transport.csproj" />
   </Folder>
   <Folder Name="/Host/">
+    <Project Path="Nexa.Jvm.Host/Nexa.Jvm.Host.csproj" />
     <Project Path="Nexa.Desktop/Nexa.Desktop.csproj" />
   </Folder>
   <Folder Name="/Tests/">

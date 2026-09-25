@@ -33,6 +33,19 @@ Truncated, oversized, unknown-version and trailing data are rejected. This is a 
 bootstrap, not synchronous Sidecar dispatch. The codec alone does not enable JNI execution;
 the existing subprocess executor remains active until the native host is validated.
 
+The dedicated `Nexa.Jvm.Host` executable references Services for the bootstrap protocol only,
+without Desktop or renderer references. It reads exactly one bootstrap frame from stdin and
+invokes JNI on a dedicated thread. JVM exceptions
+are described to stderr and produce a nonzero exit; DestroyJavaVM waits for non-daemon threads.
+The JVM library remains loaded until process exit. macOS first-thread/run-loop integration is
+not yet available and this mode rejects macOS explicitly. Normal launch routing is unchanged
+until end-to-end host transport and platform smoke tests are in place.
+
+Windows .NET apphost CET conflicts with HotSpot initialization on supported hardware (reproduced
+as 0xC0000409 before VM creation). Only the isolated Host opts out via CETCompat=false; Desktop
+retains its default CET protection. See Microsoft's .NET 9 CET compatibility notice:
+https://learn.microsoft.com/en-us/dotnet/core/compatibility/interop/9.0/cet-support.
+
 `MinecraftLaunchExecutor(MinecraftProcessService, ...)` remains available and wraps the process
 service in `JvmHostService`. A second constructor accepts `IJvmHost` for contract tests and future
 platform hosts. Process state composition declares observation state alongside the existing

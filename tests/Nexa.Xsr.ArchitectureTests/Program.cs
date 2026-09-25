@@ -36,6 +36,7 @@ internal static class Program
             ],
             ["Nexa.Services.Composition"] = ["Nexa.Services", "Nexa.Xsr.Runtime"],
             ["CapabilityProbe"] = ["Nexa.Services"],
+            ["Nexa.Jvm.Host"] = ["Nexa.Services"],
             ["Nexa.UI.Next"] = ["Nexa.Core", "Nexa.Xsr.Abstractions", "Nexa.Xsr.State"],
             ["Nexa.UI.Next.Backend.Avalonia"] = ["Nexa.UI.Next"],
             ["Nexa.UI.Next.DevTools"] = ["Nexa.UI.Next", "Nexa.Xsr.Diagnostics"],
@@ -71,6 +72,7 @@ internal static class Program
     private static readonly HashSet<string> ExecutableProjects =
         [
             "CapabilityProbe",
+            "Nexa.Jvm.Host",
             "Nexa.Desktop",
             "Nexa.UI.Next.Benchmarks",
             "Nexa.Xsr.ArchitectureTests",
@@ -88,6 +90,7 @@ internal static class Program
 
     private static readonly HashSet<string> AotCompatibleProjects =
         [
+            "Nexa.Jvm.Host",
             "Nexa.Xsr.Abstractions",
             "Nexa.Xsr.Runtime",
             "Nexa.Xsr.State",
@@ -321,6 +324,10 @@ internal static class Program
 
     private static void ValidateProjectKind(string projectName, XDocument project, List<string> failures)
     {
+        if (projectName == "Nexa.Desktop" && string.Equals(Property(project, "CETCompat"), "false", StringComparison.OrdinalIgnoreCase))
+            failures.Add("Desktop must not inherit the isolated JVM host CET exception.");
+        if (projectName == "Nexa.Jvm.Host" && !string.Equals(Property(project, "CETCompat"), "false", StringComparison.OrdinalIgnoreCase))
+            failures.Add("The isolated JVM host requires its documented CET compatibility setting.");
         string? outputType = Property(project, "OutputType");
         string expectedOutputType = projectName == "Nexa.Desktop" ? "WinExe" : "Exe";
         if (ExecutableProjects.Contains(projectName) && !string.Equals(outputType, expectedOutputType, StringComparison.Ordinal))

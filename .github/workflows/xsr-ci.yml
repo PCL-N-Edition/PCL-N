@@ -11,6 +11,31 @@ permissions:
   contents: read
 
 jobs:
+  jvm-host:
+    name: NativeAOT JNI host (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Publish isolated JNI host
+        run: dotnet publish Nexa.Jvm.Host -c Release -p:PublishAot=true -o native-jvm-host
+      - name: Exercise real JVM lifecycle
+        shell: pwsh
+        run: |
+          $binary = if ($IsWindows) { './native-jvm-host/Nexa.Jvm.Host.exe' } else { './native-jvm-host/Nexa.Jvm.Host' }
+          ./eng/xsr/Test-JvmHost.ps1 -HostExecutable $binary -JavaHome $env:JAVA_HOME
+
   account-security:
     name: Native account protection (${{ matrix.os }})
     strategy:
