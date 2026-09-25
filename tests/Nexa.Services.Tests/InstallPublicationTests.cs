@@ -57,12 +57,19 @@ internal static partial class Program
                 }
                 else
                 {
-                    await reopened.ApplyAsync(default); await reopened.ApplyAsync(default);
+                    using var fixture = new InstallFixture(new FakeMetadata());
+                    await fixture.Install.ResumeModificationAsync(root, preparedTaskId(stage));
+                    await fixture.Install.ResumeModificationAsync(root, preparedTaskId(stage));
                     AssertEqual("replacement-mod", File.ReadAllText(mod)); AssertEqual("replacement-manifest", File.ReadAllText(manifest));
+                    File.WriteAllText(mod, "changed-after-commit");
+                    try { await reopened.ApplyAsync(default); throw new InvalidOperationException("Committed external change ignored."); } catch (IOException) { }
+                    AssertEqual("changed-after-commit", File.ReadAllText(mod));
                 }
             }
         }
         finally { Directory.Delete(root, true); }
+
+        static Guid preparedTaskId(string stage) => Guid.ParseExact(Path.GetFileName(stage), "N");
     }
 
     private static async ValueTask InstallPublicationPreservesChangedFilesAndRejectsTampering()

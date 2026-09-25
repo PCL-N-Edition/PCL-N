@@ -15,6 +15,7 @@ internal sealed class InstallPublicationJournal
     private readonly IReadOnlyList<InstallPublicationFile> _files;
     private readonly string _hash;
     private const int RecordLimit = 16 * 1024 * 1024;
+    internal string InstanceId => _instance;
 
     private InstallPublicationJournal(string root, string stage, string instance, IReadOnlyList<InstallPublicationFile> files, string hash)
     { _root = root; _stage = stage; _journal = Path.Combine(stage, ".publication"); _instance = instance; _files = files; _hash = hash; }
@@ -99,6 +100,12 @@ internal sealed class InstallPublicationJournal
     internal async Task ApplyAsync(CancellationToken token, Action<int, int>? progress = null)
     {
         var (phase, attempted) = await ReadProgressAsync(token).ConfigureAwait(false);
+        // A completed prefix may have been changed while the launcher was stopped.
+        // Validate it before touching another file, including a previously committed transaction.
+        int completed = phase == "committed" ? _files.Count : Math.Max(0, attempted - 1);
+        for (int i = 0; i < completed; i++)
+            if (await ObserveAsync(Target(_root, _instance, _files[i].RelativePath), new(RecoveryBlobStore.MaxFileBytes), token).ConfigureAwait(false) != _files[i].After)
+                throw new IOException("已发布文件在中断后发生变化，已保留恢复记录。");
         if (phase == "committed") return;
         if (phase is not ("prepared" or "applying")) throw new IOException("该安装正在回滚，不能继续发布。");
         // attempted includes the operation whose intent was flushed before an interrupted write.
@@ -153,7 +160,9 @@ internal sealed class InstallPublicationJournal
         var value = JsonNode.Parse(await ReadAsync(Path.Combine(_journal, "progress.json"), 4096, token).ConfigureAwait(false))!;
         string phase = value["phase"]!.GetValue<string>(); int attempted = value["attempted"]!.GetValue<int>();
         if (value["plan"]!.GetValue<string>() != _hash || attempted < 0 || attempted > _files.Count
-            || phase is not ("prepared" or "applying" or "committed" or "rolling-back" or "rolled-back")) throw new InvalidDataException("安装发布进度无效。");
+            || phase is not ("prepared" or "applying" or "committed" or "rolling-back" or "rolled-back")
+            || phase is "prepared" or "rolled-back" && attempted != 0 || phase == "committed" && attempted != _files.Count)
+            throw new InvalidDataException("安装发布进度无效。");
         return (phase, attempted);
     }
 

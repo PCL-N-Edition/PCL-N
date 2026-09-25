@@ -152,7 +152,7 @@ public static class MinecraftInstallEditService
 
 public sealed partial class MinecraftInstallService
 {
-    private async Task<MinecraftInstallResult> ReinstallAsync(MinecraftInstallCommand command, ITaskCenterTask task, CancellationToken token)
+    private async Task<MinecraftInstallResult> ReinstallAsync(MinecraftInstallCommand command, ITaskCenterTask task, CancellationToken token, string? resumeStage = null)
     {
         string instance = command.InstanceName ?? throw new InvalidDataException("未指定要修改的版本。");
         var original = await MinecraftInstallEditService.ReadAsync(new(command.RootDirectory, instance), token).ConfigureAwait(false);
@@ -167,12 +167,20 @@ public sealed partial class MinecraftInstallService
             if (command.NewInstanceName is null || command.NewInstanceName == instance) task.Complete("没有需要修改的选项");
             return new(instance, Path.Combine(original.RootDirectory, "versions", instance));
         }
-        string stage = ForgeInstallService.Contained(original.RootDirectory, ".nexa-modify/" + Guid.NewGuid().ToString("N"));
+        string stage = resumeStage ?? ForgeInstallService.Contained(original.RootDirectory, ".nexa-modify/" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(stage);
         bool safeToRemove = false;
+        FileStream? executionLease = null;
         try
         {
-            _ = await InstallTaskJournal.CreateAsync(stage, command with { RootDirectory = original.RootDirectory }, token).ConfigureAwait(false);
+            if (resumeStage is null)
+            {
+                string taskDirectory = Path.Combine(stage, InstallTaskJournal.DirectoryName);
+                Directory.CreateDirectory(taskDirectory);
+                string executionPath = Path.Combine(taskDirectory, "execution.lock"); Management.RecoveryBlobStore.CheckLinks(executionPath);
+                executionLease = new FileStream(executionPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                _ = await InstallTaskJournal.CreateAsync(stage, command with { RootDirectory = original.RootDirectory }, token).ConfigureAwait(false);
+            }
             if (editPlan.Kind == MinecraftInstallEditKind.ComponentsOnly)
                 await PrepareComponentEditAsync(command, original, editPlan, stage, task, token).ConfigureAwait(false);
             else
@@ -203,6 +211,7 @@ public sealed partial class MinecraftInstallService
             try { await publication.ApplyAsync(token).ConfigureAwait(false); }
             catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)
             {
+                if (resumeStage is not null) throw; // Recovery keeps its progress for the next attempt or explicit rollback.
                 // Cancellation compensates too. A failed compensation retains the durable stage.
                 try { await publication.RollbackAsync(CancellationToken.None).ConfigureAwait(false); }
                 catch (Exception rollbackError) when (rollbackError is not OutOfMemoryException and not AccessViolationException)
@@ -220,8 +229,9 @@ public sealed partial class MinecraftInstallService
         }
         finally
         {
+            executionLease?.Dispose();
             // An interrupted/failed publication owns the only durable originals. Keep it until resolved.
-            if (safeToRemove || !File.Exists(Path.Combine(stage, ".publication", "progress.json")))
+            if (resumeStage is null && (safeToRemove || !File.Exists(Path.Combine(stage, ".publication", "progress.json"))))
             {
                 Management.RecoveryBlobStore.CheckLinks(stage);
                 try { Directory.Delete(stage, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }

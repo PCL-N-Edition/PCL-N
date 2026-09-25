@@ -9,6 +9,7 @@ internal static partial class Program
         ("persistent install metadata freezes documents and rejects corruption", PersistentInstallMetadataFreezesDocumentsAndRejectsCorruption),
         ("persistent install metadata serializes publication and honors cancellation", PersistentInstallMetadataSerializesPublicationAndHonorsCancellation),
         ("install task journal preserves choices and rejects invalid records", InstallTaskJournalPreservesChoicesAndRejectsInvalidRecords),
+        ("install recovery continues preparation and rejects concurrent execution", InstallRecoveryContinuesPreparationAndRejectsConcurrentExecution),
         ("install publication survives process termination", InstallPublicationSurvivesProcessTermination),
         ("install publication preserves external changes and rejects tampering", InstallPublicationPreservesChangedFilesAndRejectsTampering),
         ("recovery coordinator commits and compensates settings", RecoveryCoordinatorCommitsAndCompensatesSettings),
