@@ -238,6 +238,7 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
         Point position = e.GetPosition(this);
         XsrUiPoint point = new(position.X, position.Y);
         bool handled = _shell.Renderer.PointerPressed(point);
+        TrackFileDrag(e, position);
         CommitScene();
         BeginTextSelection(position, e.ClickCount);
         if (handled)
@@ -257,6 +258,8 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
+        _fileDragPress = null;
+        if (_fileDragActive) { _fileDragReleased = true; e.Handled = true; return; }
         Point position = e.GetPosition(this);
         bool handled = _shell.Renderer.PointerReleased(new XsrUiPoint(position.X, position.Y));
         handled |= _textSelecting.IsAssigned;
@@ -271,6 +274,7 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
         base.OnPointerMoved(e);
         Point position = e.GetPosition(this);
         _pointerInside = true;
+        if (MoveFileDrag(e, position)) { e.Handled = true; return; }
         _lastPointerPoint = new XsrUiPoint(position.X, position.Y);
         UpdatePointerCursor(_lastPointerPoint);
         if (ExtendTextSelection(position)) return;
@@ -295,6 +299,7 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
     protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
     {
         base.OnPointerCaptureLost(e);
+        _fileDragPress = null;
         _textSelecting = default;
         if (_shell.Renderer.CancelPointerGesture()) CommitScene();
     }
@@ -316,6 +321,15 @@ public sealed partial class AvaloniaUiSceneSurface : Panel, IDisposable
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
+        if (e.Key == Key.Escape && (_fileDragActive || _fileDragPress is not null))
+        {
+            _fileDragReleased = true;
+            _fileDragPress = null;
+            _shell.Renderer.CancelPointerGesture();
+            CommitScene();
+            e.Handled = true;
+            return;
+        }
         if (HandleTextEditingKey(e)) { e.Handled = true; return; }
         XsrUiKey? key = e.Key switch
         {

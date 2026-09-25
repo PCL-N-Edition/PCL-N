@@ -39,6 +39,8 @@ public sealed class AvaloniaUiPlatformActions
 
     private void OnDragOver(object? sender, DragEventArgs args)
     {
+        if (_owner is AvaloniaUiShellWindow window && window.Surface.IsFileDragActive)
+        { args.DragEffects = DragDropEffects.None; args.Handled = true; return; }
         // This import path supports copy only. Never advertise Move and let the source delete data.
         args.DragEffects = FilesDropped is not null && args.DataTransfer.Contains(DataFormat.File)
             && (args.KeyModifiers & (KeyModifiers.Shift | KeyModifiers.Alt)) == 0

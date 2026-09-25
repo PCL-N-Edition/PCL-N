@@ -409,6 +409,7 @@ internal static partial class Program
             await VerifySpringIgnoresStaleSceneReads().ConfigureAwait(true);
             await VerifyCapsuleGeometryClock(shell, surface).ConfigureAwait(true);
             await VerifyPagerNativeDragAndClock(window, shell, surface).ConfigureAwait(true);
+            await VerifyNativeFileDragThreshold(window, shell, surface).ConfigureAwait(true);
             // ReducedMotionCancelsRunningRailMotion: start the expansion normally, flip the
             // policy mid-flight, then collapse. The shell snaps the progress to the collapsed
             // fact and the running track must never write the expansion back over it.

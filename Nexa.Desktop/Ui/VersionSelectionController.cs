@@ -1,6 +1,7 @@
 using System.Reflection;
 using Nexa.Pxml;
 using Nexa.Services.Minecraft;
+using Nexa.Services.Minecraft.Process;
 using Nexa.UI.Next;
 using Nexa.UI.Next.Backend.Avalonia;
 using Nexa.Xsr;
@@ -60,6 +61,7 @@ internal sealed class VersionSelectionController : IDisposable
     private readonly XsrUiEntityId _dropdown;
     private readonly CancellationTokenSource _lifetime = new();
     private long _revision = -1;
+    private long _processRevision = -1;
     private string _filter = "", _root = "";
     private bool _chooseDirectories, _disposed, _wasVisible, _picking, _manualAdd, _keyboardDropdown;
     private string? _editingRoot;
@@ -250,7 +252,10 @@ internal sealed class VersionSelectionController : IDisposable
             _shell.Tree.GetComponent<XsrUiScroll>(_entities["LibraryVersionRows"])!.OffsetY = 0;
         }
         string filter = _shell.Tree.GetComponent<XsrUiTextInput>(_entities["LibrarySearch"])!.ReadDraft().Trim();
-        if (_revision == snapshot.Revision && filter == _filter) return;
+        long processRevision = _store.TryResolve(MinecraftProcessStateComposition.SessionsKey, out var sessions)
+            ? _store.ReadCollection<MinecraftProcessSnapshot>(sessions).Revision : -1;
+        if (_revision == snapshot.Revision && filter == _filter && _processRevision == processRevision) return;
+        _processRevision = processRevision;
         _revision = snapshot.Revision; _filter = filter;
         MinecraftLibraryDirectory current = snapshot.Directories.First(item => MinecraftLibraryService.PathComparer.Equals(item.Path, snapshot.RootDirectory));
         Publish("directory.name", current.DisplayName); Publish("directory.path", current.Path); Publish("directory.named", current.HasName);
@@ -322,6 +327,13 @@ internal sealed class VersionSelectionController : IDisposable
         foreach (var (row, value) in _versions)
         {
             MinecraftInstanceDescriptor instance = shown.First(item => item.Id == value.Id);
+            bool running = _store.TryResolve(MinecraftProcessStateComposition.SessionsKey, out var sessions)
+                && _store.ReadCollection<MinecraftProcessSnapshot>(sessions).Items.Any(item =>
+                    MinecraftLibraryService.PathComparer.Equals(item.InstanceDirectory, instance.DirectoryPath)
+                    && item.State is MinecraftProcessState.Created or MinecraftProcessState.Running);
+            _shell.Tree.SetComponent(row, new XsrUiFileDrag([instance.DirectoryPath],
+                XsrUiFileDragEffects.Copy | XsrUiFileDragEffects.Link | (running ? XsrUiFileDragEffects.None : XsrUiFileDragEffects.Move),
+                XsrSemanticId.Parse("ui.versions.refresh")));
             _shell.Tree.Walk(row, entity =>
             {
                 string key = _shell.Tree.Name(entity);

@@ -1,7 +1,9 @@
 using Nexa.Desktop.Ui;
 using Nexa.Services.Composition;
 using Nexa.Services.Minecraft;
+using Nexa.Services.Minecraft.Process;
 using Nexa.UI.Next;
+using Nexa.Xsr.State;
 
 namespace Nexa.Desktop.Tests;
 
@@ -154,6 +156,22 @@ internal static partial class Program
         shell.Renderer.Activate(FindByKey(shell, scene, "InstanceListButton").Entity);
         scene = shell.Render(new(850, 500));
         var row = FindByKey(shell, scene, "LibraryRow:version:second");
+        var drag = shell.Tree.GetComponent<XsrUiFileDrag>(row.Entity)!;
+        AssertEqual(1, drag.Paths.Count);
+        AssertTrue(drag.Paths[0].EndsWith("second", StringComparison.Ordinal));
+        AssertTrue(drag.Effects.HasFlag(XsrUiFileDragEffects.Move));
+        AssertEqual("ui.versions.refresh", drag.Completed.Value);
+        var sessions = fixture.Store.Resolve(MinecraftProcessStateComposition.SessionsKey);
+        var running = new MinecraftProcessSnapshot(Guid.NewGuid(), "second", 123, MinecraftProcessState.Running,
+            null, DateTimeOffset.UtcNow, null)
+        { InstanceDirectory = drag.Paths[0] };
+        fixture.Store.PublishDelta(sessions, new XsrCollectionDelta<MinecraftProcessSnapshot, Guid>(0, [running], []));
+        shell.Render(new(850, 500));
+        AssertFalse(shell.Tree.GetComponent<XsrUiFileDrag>(row.Entity)!.Effects.HasFlag(XsrUiFileDragEffects.Move));
+        fixture.Store.PublishDelta(sessions, new XsrCollectionDelta<MinecraftProcessSnapshot, Guid>(1,
+            [running with { InstanceDirectory = Path.Combine(fixture.TemporaryDirectory, "another-root", "second") }], []));
+        shell.Render(new(850, 500));
+        AssertTrue(shell.Tree.GetComponent<XsrUiFileDrag>(row.Entity)!.Effects.HasFlag(XsrUiFileDragEffects.Move));
         Emit(fixture.Intents, "ui.versions.select", row.Entity);
         // No idle wait and no timer advancement: one render returns home.
         scene = shell.Render(new(850, 500));
