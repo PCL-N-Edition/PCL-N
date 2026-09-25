@@ -415,8 +415,9 @@ internal static partial class Program
 
     private static async ValueTask SecondConcurrentLaunchIsRejectedAsAlreadyActive()
     {
+        LongLivedProcessPort processPort = new();
         (MinecraftLaunchCoordinator coordinator, FoundationHost host, RecordingStubInstaller installer, string root) =
-            ComposeAcquisitionCoordinator(installer: new RecordingStubInstaller());
+            ComposeAcquisitionCoordinator(installer: new RecordingStubInstaller(), processPort: processPort);
         try
         {
             // Park the first pipeline at the acquisition gate, then start a second one.
@@ -444,6 +445,11 @@ internal static partial class Program
         }
         finally
         {
+            if (processPort.LastProcess is { } child)
+            {
+                if (!child.HasExited) child.Kill(entireProcessTree: true);
+                await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            }
             Directory.Delete(root, recursive: true);
         }
     }
