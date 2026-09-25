@@ -42,3 +42,7 @@ authenticated handoff is wired. Machine-wide packages and release signatures are
 prerequisites; they do not complete this boundary. Existing path-based staging and
 restart utilities must not be connected to an elevated host before this contract is
 implemented and deterministic replacement-race tests pass. SEC-07 remains open.
+
+### Audit enforcement
+UpdateStaging.ApplyPlan is now an explicit fail-closed compatibility entry point: it throws NotSupportedException before inspecting or mutating any install/staging path. There is no trusted object-bound privileged helper yet. Verified planning, download and manual installer flows remain usable; calling the legacy path-based apply API is not an authorization to replace files. A future helper must meet the same-account attacker contract before this capability is enabled.
+

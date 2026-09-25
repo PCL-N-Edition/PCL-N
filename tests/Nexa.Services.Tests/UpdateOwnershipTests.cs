@@ -52,22 +52,22 @@ internal static partial class Program
             AssertEqual(1, plan.DeletePaths.Count);
             AssertEqual("old.dll", plan.DeletePaths[0]);
             bool missingAuthority = false;
-            try { UpdateStaging.ApplyPlan(plan); } catch (InvalidDataException) { missingAuthority = true; }
+            try { UpdateStaging.ApplyPlan(plan); } catch (NotSupportedException) { missingAuthority = true; }
             AssertTrue(missingAuthority);
             AssertTrue(File.Exists(Path.Combine(stage, "app")));
             plan.DeletePaths.Add("user.txt");
             bool injected = false;
-            try { UpdateStaging.ApplyPlan(plan, inventory); } catch (InvalidDataException) { injected = true; }
+            try { UpdateStaging.ApplyPlan(plan, inventory); } catch (NotSupportedException) { injected = true; }
             AssertTrue(injected);
             AssertTrue(File.Exists(Path.Combine(stage, "app")));
             plan.DeletePaths.Remove("user.txt");
             // Changed after planning: the user's modification must survive apply too.
             File.WriteAllBytes(Path.Combine(install, "old.dll"), [3]);
-            AssertEqual(0, UpdateStaging.ApplyPlan(plan, inventory).FilesDeleted);
+            AssertApplyRequiresProtectedHelper(plan, inventory);
             AssertTrue(File.Exists(Path.Combine(install, "old.dll")));
             File.WriteAllBytes(Path.Combine(install, "old.dll"), [1]);
             var deleteOnly = UpdateStaging.BuildPlan(install, stage, "app", [], inventory);
-            AssertEqual(1, UpdateStaging.ApplyPlan(deleteOnly, inventory).FilesDeleted);
+            AssertApplyRequiresProtectedHelper(deleteOnly, inventory);
             AssertTrue(File.Exists(Path.Combine(install, "modified.dll")));
             AssertTrue(File.Exists(Path.Combine(install, "user.txt")));
             AssertTrue(File.Exists(Path.Combine(install, "UpdateState", "cache")));
@@ -77,7 +77,7 @@ internal static partial class Program
                 aliasFiles[0].Path = alias;
                 var aliasPlan = UpdateStaging.BuildPlan(install, aliasStage, "old.dll", aliasFiles, inventory);
                 AssertEqual(0, aliasPlan.DeletePaths.Count);
-                UpdateStaging.ApplyPlan(aliasPlan, inventory);
+                AssertApplyRequiresProtectedHelper(aliasPlan, inventory);
                 AssertTrue(File.Exists(Path.Combine(install, "old.dll")));
             }
         }

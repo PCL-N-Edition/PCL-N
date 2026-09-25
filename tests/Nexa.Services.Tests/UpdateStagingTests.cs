@@ -175,7 +175,15 @@ internal static partial class Program
         }
     }
 
-    internal static void ApplyPlanPlacesFilesAndRunsDeletes()
+    private static void AssertApplyRequiresProtectedHelper(UpdateInstallPlan plan, VerifiedUpdateInventory? inventory = null)
+    {
+        bool rejected = false;
+        try { UpdateStaging.ApplyPlan(plan, inventory); }
+        catch (NotSupportedException) { rejected = true; }
+        AssertTrue(rejected);
+    }
+
+    internal static void ApplyPlanRefusesUnprotectedMutation()
     {
         string directory = CreateTempDirectory();
         try
@@ -194,28 +202,12 @@ internal static partial class Program
             UpdateInstallPlan plan = UpdateStaging.BuildPlan(installRoot, stagedRoot, "NexaCL.exe", files);
 
 
-            UpdateStaging.ApplyPlan(plan);
-
-            byte[] landed = File.ReadAllBytes(Path.Combine(installRoot, "NexaCL.exe"));
-            AssertTrue(landed.SequenceEqual<byte>([0x01, 0x02, 0x03]));
-            AssertEqual("{\"new\":true}", File.ReadAllText(Path.Combine(installRoot, "data", "config.json")));
+            AssertApplyRequiresProtectedHelper(plan);
+            AssertTrue(File.ReadAllBytes(Path.Combine(installRoot, "NexaCL.exe")).SequenceEqual<byte>([0x99]));
+            AssertFalse(File.Exists(Path.Combine(installRoot, "data", "config.json")));
             AssertTrue(File.Exists(Path.Combine(installRoot, "obsolete.bin")));
-            AssertFalse(File.Exists(Path.Combine(stagedRoot, "NexaCL.exe")));
+            AssertTrue(File.Exists(Path.Combine(stagedRoot, "NexaCL.exe")));
 
-            // Idempotent replay: the staged files are gone now, so a second apply refuses
-            // instead of corrupting the installation.
-            bool refused = false;
-            try
-            {
-                UpdateStaging.ApplyPlan(plan);
-            }
-            catch (InvalidDataException)
-            {
-                refused = true;
-            }
-
-            AssertTrue(refused);
-            AssertEqual(3, File.ReadAllBytes(Path.Combine(installRoot, "NexaCL.exe")).Length);
         }
         finally
         {
@@ -267,7 +259,7 @@ internal static partial class Program
             {
                 UpdateStaging.ApplyPlan(plan);
             }
-            catch (InvalidDataException)
+            catch (NotSupportedException)
             {
                 applyRejected = true;
             }

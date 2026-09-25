@@ -276,7 +276,7 @@ internal static partial class Program
         ("update discovery binds every version", UpdateDiscoveryBindsEveryVersion),
         ("update deletion requires signed ownership", UpdateDeletionRequiresSignedOwnership),
         ("plan building preserves unknown files", Sync(BuildPlanInventoriesManagedLeftovers)),
-        ("applying a plan places files and runs deletes", Sync(ApplyPlanPlacesFilesAndRunsDeletes)),
+        ("applying a plan refuses unprotected mutation", Sync(ApplyPlanRefusesUnprotectedMutation)),
         ("unsafe paths are refused everywhere", Sync(UnsafePathsAreRefusedEverywhere)),
         // XSR-706: product launch orchestration inputs.
         ("offline identity falls back to the vanilla uuid", Sync(OfflineIdentityFallsBackToVanillaUuid)),

@@ -108,63 +108,13 @@ public static class UpdateStaging
     }
 
     /// <summary>
-    /// Applies one install plan: re-verifies every staged file against its manifest entry,
-    /// moves it into the install root (atomic replace), restores Unix modes outside Windows,
-    /// and deletes the managed leftovers. Paths are safe-resolved under their roots; escapes
-    /// are refused.
+    /// Refuses automatic replacement until a protected, object-bound installation helper is available.
+    /// Signed manifests establish content identity, not authority over path-based filesystem writes.
     /// </summary>
     public static UpdateInstallSummary ApplyPlan(UpdateInstallPlan plan, VerifiedUpdateInventory? previousInventory = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        string installRoot = Path.GetFullPath(plan.InstallRoot
-            ?? throw new InvalidDataException("安装计划缺少安装根目录。"));
-        string stagedRoot = Path.GetFullPath(plan.StagedRoot
-            ?? throw new InvalidDataException("安装计划缺少暂存目录。"));
-        // Validate all deletion authority before any file is consumed or replaced.
-        var targetPaths = new HashSet<string>(plan.Files.Select(file => CanonicalRelativePath(installRoot, file.Path)), PathComparer);
-        foreach (string delete in plan.DeletePaths)
-        {
-            ResolveSafeRelativePath(installRoot, delete);
-            string normalized = NormalizeRelativePath(delete);
-            if (previousInventory is null || !previousInventory.Entries.ContainsKey(normalized)
-                || targetPaths.Contains(normalized) || IsUpdaterState(normalized))
-                throw new InvalidDataException("更新计划没有删除该文件的授权。");
-        }
-        int applied = 0;
-        int deleted = 0;
-
-        foreach (UpdateFileEntry file in plan.Files)
-        {
-            string source = ResolveSafeRelativePath(stagedRoot, file.Path);
-            if (!File.Exists(source))
-            {
-                throw new InvalidDataException($"暂存更新缺少文件：{file.Path}");
-            }
-
-            VerifyFileEntry(source, file);
-            string destination = ResolveSafeRelativePath(installRoot, file.Path);
-            string? directory = Path.GetDirectoryName(destination);
-            if (!string.IsNullOrEmpty(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            File.Move(source, destination, overwrite: true);
-            RestoreUnixMode(destination, file.UnixMode);
-            applied++;
-        }
-
-        foreach (string delete in plan.DeletePaths)
-        {
-            string path = ResolveSafeRelativePath(installRoot, delete);
-            if (IsUnmodified(path, previousInventory!.Entries[NormalizeRelativePath(delete)]))
-            {
-                File.Delete(path);
-                deleted++;
-            }
-        }
-
-        return new UpdateInstallSummary(applied, deleted);
+        throw new NotSupportedException("自动替换尚无安全的权限隔离支持。请使用系统安装包并按提示提升权限。");
     }
 
     private static StringComparer PathComparer => OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
