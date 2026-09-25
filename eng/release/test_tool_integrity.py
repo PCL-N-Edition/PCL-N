@@ -13,6 +13,21 @@ import package
 
 
 class ToolIntegrityTests(unittest.TestCase):
+    def test_runtime_bundle_excludes_native_debug_sidecars(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "publish"
+            source.mkdir()
+            (source / "Nexa.Desktop").write_bytes(b"runtime")
+            (source / "libSkia.dylib").write_bytes(b"library")
+            symbols = source / "Nexa.Desktop.dSYM"
+            symbols.mkdir()
+            (symbols / "symbols").write_bytes(b"debug")
+            (source / "Nexa.Desktop.pdb").write_bytes(b"debug")
+            package.copy_runtime_payload(source, root / "bundle")
+            self.assertEqual({"Nexa.Desktop", "libSkia.dylib"}, {path.name for path in (root / "bundle").iterdir()})
+            self.assertTrue(symbols.exists())
+
     def test_corrupt_download_and_cache_are_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

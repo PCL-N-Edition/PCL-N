@@ -17,6 +17,12 @@ def required_tool(variable):
     return path
 
 
+def copy_runtime_payload(source, destination):
+    # NativeAOT emits large debugging sidecars; they are not runtime dependencies.
+    # Keep the publish directory intact for separate diagnostic artifact retention.
+    shutil.copytree(source, destination, ignore=shutil.ignore_patterns("*.pdb", "*.dbg", "*.dSYM"))
+
+
 def run(*args, **kwargs):
     subprocess.run([str(arg) for arg in args], check=True, **kwargs)
 
@@ -45,7 +51,7 @@ def windows(payload, output, work, base, version, prefix, arch):
 def macos(payload, output, work, base, version, prefix, arch):
     app = work / "Nexa.app"
     contents = app / "Contents"
-    shutil.copytree(payload, contents / "MacOS")
+    copy_runtime_payload(payload, contents / "MacOS")
     resources = contents / "Resources"
     resources.mkdir()
     iconset = work / "Launcher.iconset"
