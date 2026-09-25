@@ -5,6 +5,8 @@ internal static partial class Program
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
         ("recovery captures publish complete manifests only", RecoveryCaptureCommitsOnlyCompleteManifests),
+        ("recovery coordinator commits and compensates settings", RecoveryCoordinatorCommitsAndCompensatesSettings),
+        ("recovery coordinator reopens interrupted settings commit", RecoveryCoordinatorReopensInterruptedSettingsCommit),
         ("recovery file transaction restores selected files and reverses", RecoveryFileTransactionRestoresOnlySelectedFilesAndReverses),
         ("recovery file transaction compensates partial failure and preserves conflicts", RecoveryFileTransactionRevertsPartialFailureAndPreservesConflicts),
         ("recovery file transaction rejects stale and out of scope edits", RecoveryFileTransactionRejectsStaleAndOutOfScopeEdits),
@@ -74,6 +76,8 @@ internal static partial class Program
         ("settings legacy strategies preserve units and choices", Sync(SettingsLegacyStrategiesKeepTheirMeaning)),
         ("settings argument rows preserve quoted values", Sync(SettingsArgumentRowsPreserveQuotedValues)),
         ("settings Java preference reaches launch selection", Sync(SettingsJavaPreferenceReachesLaunchSelection)),
+        ("recovery setting plans restore selected overrides and compensate", Sync(RecoverySettingPlansRestoreOnlySelectedOverridesAndCompensate)),
+        ("recovery setting plans reject stale conflicting and wrong scope state", Sync(RecoverySettingPlansRejectStaleAndConflictingState)),
         ("recovery settings preserve private arguments and inheritance", Sync(RecoverySettingsPreservePrivateArgumentsAndInheritance)),
         ("recovery settings reject wrong scope and incomplete baseline", Sync(RecoverySettingsRejectWrongScopeAndIncompleteBaseline)),
         ("settings inheritance distinguishes Auto and isolates instances", Sync(SettingsInheritanceIsExplicitAndIsolated)),

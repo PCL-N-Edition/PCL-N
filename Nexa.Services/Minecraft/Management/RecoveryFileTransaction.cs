@@ -80,7 +80,7 @@ internal static class RecoveryFileTransaction
         await WriteJournalAsync(prepared, planHash, "rolled-back", 0, token).ConfigureAwait(false);
     }
 
-    private static void Validate(RecoveryPreparedRestore prepared, RecoverySnapshotStore store, IReadOnlyList<RecoveryFileEdit> edits)
+    internal static void Validate(RecoveryPreparedRestore prepared, RecoverySnapshotStore store, IReadOnlyList<RecoveryFileEdit> edits)
     {
         var versions = Directory.GetParent(prepared.Snapshot.InstanceDirectory);
         if (versions?.Name != "versions" || versions.Parent is null
@@ -205,7 +205,7 @@ internal static class RecoveryFileTransaction
         return WriteRecordAsync(prepared, "apply.json", JsonSerializer.SerializeToUtf8Bytes(document, RecoveryJsonContext.Default.JsonObject), token);
     }
 
-    private static async Task WriteRecordAsync(RecoveryPreparedRestore prepared, string name, byte[] bytes, CancellationToken token)
+    internal static async Task WriteRecordAsync(RecoveryPreparedRestore prepared, string name, byte[] bytes, CancellationToken token)
     {
         string target = Path.Combine(prepared.Directory, name), temporary = Path.Combine(prepared.Directory, Guid.NewGuid().ToString("N") + ".journal.part");
         RecoveryBlobStore.CheckLinks(temporary);
@@ -219,7 +219,7 @@ internal static class RecoveryFileTransaction
         finally { RecoveryBlobStore.CheckLinks(temporary); if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
-    private static async Task<byte[]> ReadRecordAsync(string path, int limit, CancellationToken token)
+    internal static async Task<byte[]> ReadRecordAsync(string path, int limit, CancellationToken token)
     {
         RecoveryBlobStore.CheckLinks(path);
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);

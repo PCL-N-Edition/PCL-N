@@ -5,6 +5,53 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static void RecoverySettingPlansRestoreOnlySelectedOverridesAndCompensate()
+    {
+        var (_, service) = PolicyFixture();
+        string instance = Path.GetFullPath("recovery-selected-settings");
+        AssertTrue(service.Set(new("game.jvm", SettingsLayer.Global, new(SettingsOverrideMode.Custom, "old-global"))).IsSuccess);
+        string baseline = service.CaptureRecoverySettings(instance);
+        AssertTrue(service.Set(new("game.jvm", SettingsLayer.Global, new(SettingsOverrideMode.Custom, "new-global"))).IsSuccess);
+        AssertTrue(service.Set(new("game.arguments", SettingsLayer.Instance, new(SettingsOverrideMode.Custom, "keep-current"), instance)).IsSuccess);
+        var plan = service.PlanRecoverySettings(instance, baseline, ["game.jvm"]);
+        AssertEqual(1, plan.After.Count);
+        AssertEqual(SettingsOverrideMode.Inherit, plan.Before[0].Value.Mode);
+        AssertTrue(service.ApplyRecoverySettingsPlan(plan, reverse: false).IsSuccess);
+        AssertEqual("old-global", Effective(service, "game.jvm", instance).Value.Value);
+        AssertEqual("keep-current", Effective(service, "game.arguments", instance).Value.Value);
+        AssertEqual("new-global", Effective(service, "game.jvm").Value.Value);
+        AssertTrue(service.Set(new("game.jvm", SettingsLayer.Global, new(SettingsOverrideMode.Custom, "later-global"))).IsSuccess);
+        AssertTrue(service.ApplyRecoverySettingsPlan(plan, reverse: true).IsSuccess);
+        AssertTrue(service.ApplyRecoverySettingsPlan(plan, reverse: true).IsSuccess);
+        AssertEqual("later-global", Effective(service, "game.jvm", instance).Value.Value);
+        AssertEqual(SettingsLayer.Global, Effective(service, "game.jvm", instance).Source);
+        AssertEqual("keep-current", Effective(service, "game.arguments", instance).Value.Value);
+    }
+
+    private static void RecoverySettingPlansRejectStaleAndConflictingState()
+    {
+        var (_, service) = PolicyFixture();
+        string instance = Path.GetFullPath("recovery-conflicting-settings");
+        string baseline = service.CaptureRecoverySettings(instance);
+        AssertTrue(service.Set(new("game.arguments", SettingsLayer.Instance, new(SettingsOverrideMode.Custom, "before"), instance)).IsSuccess);
+        var stale = service.PlanRecoverySettings(instance, baseline, ["game.arguments"]);
+        AssertTrue(service.Set(new("game.width", SettingsLayer.Global, new(SettingsOverrideMode.Custom, "1024"))).IsSuccess);
+        AssertFalse(service.ApplyRecoverySettingsPlan(stale, reverse: false).IsSuccess);
+        AssertEqual("before", Effective(service, "game.arguments", instance).Value.Value);
+        var plan = service.PlanRecoverySettings(instance, baseline, ["game.arguments"]);
+        AssertTrue(service.ApplyRecoverySettingsPlan(plan, reverse: false).IsSuccess);
+        AssertTrue(service.Set(new("game.arguments", SettingsLayer.Instance, new(SettingsOverrideMode.Custom, "external-change"), instance)).IsSuccess);
+        AssertFalse(service.ApplyRecoverySettingsPlan(plan, reverse: true).IsSuccess);
+        AssertEqual("external-change", Effective(service, "game.arguments", instance).Value.Value);
+        foreach (var keys in new[] { new[] { "recovery.keep-history" }, ["updates.channel"], ["game.jvm", "game.jvm"] })
+        {
+            try { service.PlanRecoverySettings(instance, baseline, keys); throw new InvalidOperationException("Invalid recovery selection accepted."); }
+            catch (InvalidDataException) { }
+        }
+        var other = plan with { InstanceDirectory = Path.GetFullPath("other-instance") };
+        AssertFalse(service.ApplyRecoverySettingsPlan(other, reverse: true).IsSuccess);
+    }
+
     private static void RecoverySettingsPreservePrivateArgumentsAndInheritance()
     {
         var (_, service) = PolicyFixture();
