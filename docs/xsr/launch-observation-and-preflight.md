@@ -53,6 +53,11 @@ independent of transmission consent.
 
 ## Product preflight
 
+Launch queries request fresh instance metadata and carry the planned heap limit (negative
+means an unknown override). Policy projection consumes this input before subsequent
+projections. Cancellation of a transient instance query cancels its providers; cancellation
+of one machine-cache reader must not cancel other readers' shared collection.
+
 Collect one explicitly scoped snapshot asynchronously for the captured root and instance.
 Evaluate using the existing pure engine; never collect from UI rendering. Present aggregated
 issues once. Only verified hard constraints block; estimates never become hard blockers.
@@ -62,8 +67,8 @@ gate so a repaired condition is not reported from an obsolete snapshot.
 
 The product start route invokes the gate after planning. Its Java provider inspects only the
 selected runtime (java.exe sibling of javaw.exe on Windows); a failed probe is unavailable,
-not verified absence. The snapshot's heap policy is replaced with the actual planned heap
-request, or unknown when custom arguments override it. Existing low-level launch routes
+not verified absence. Policy projection uses the actual planned heap request, or unknown
+when custom arguments override it. Existing low-level launch routes
 remain lower-level execution APIs; Desktop launches through the product start route.
 
 ## Alpha 5 sequence

@@ -28,12 +28,19 @@ public static class LaunchPolicyCatalog
 public sealed class LaunchPolicyProjection : ICapabilityProjection
 {
     public IReadOnlyList<ICapability> Project(IReadOnlyDictionary<string, ICapability> values, DateTimeOffset timestamp)
+        => Project(values, timestamp, new MachineCapabilityQuery());
+
+    public IReadOnlyList<ICapability> Project(IReadOnlyDictionary<string, ICapability> values, DateTimeOffset timestamp,
+        MachineCapabilityQuery query)
     {
         const string source = "Nexa capability policy resolver";
         long recommended = ReadLong(values, "estimate.heap.recommended");
         long safe = ReadLong(values, "estimate.heap.safe_maximum");
         long memory = Math.Max(512, safe > 0 ? Math.Min(recommended, safe) : recommended);
-        List<ICapability> result = [LaunchPolicyCatalog.MinecraftMemory.Observe(memory, timestamp, source)];
+        List<ICapability> result = [query.PlannedHeapMiB is { } planned
+            ? planned > 0 ? LaunchPolicyCatalog.MinecraftMemory.Observe(planned, timestamp, "本次启动的堆内存配置")
+                : LaunchPolicyCatalog.MinecraftMemory.Unavailable(CapabilityAvailability.Unknown, timestamp, "自定义参数覆盖了堆内存配置")
+            : LaunchPolicyCatalog.MinecraftMemory.Observe(memory, timestamp, source)];
         foreach ((string id, CapabilityDefinition<string> definition) in LaunchPolicyCatalog.StringDefinitions)
         {
             string value = id switch

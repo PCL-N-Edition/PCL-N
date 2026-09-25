@@ -35,7 +35,7 @@ public static class MinecraftPrimaryInstanceScope
         string root = Path.GetFullPath(requestedRoot);
         string key = root + "\n" + query.InstanceId + "\n" + query.InstanceDirectory;
         DateTimeOffset now = DateTimeOffset.UtcNow;
-        if (Cache.TryGetValue(key, out var cached) && now - cached.At < CacheWindow)
+        if (!query.RefreshInstance && Cache.TryGetValue(key, out var cached) && now - cached.At < CacheWindow)
         {
             return cached.Value;
         }
@@ -64,12 +64,13 @@ public static class MinecraftPrimaryInstanceScope
         }
         catch (Exception failure) when (failure is not OutOfMemoryException and not AccessViolationException)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             // Discovery races a running install or a broken version dir; projections answer
             // unavailable for this window instead of failing the whole snapshot.
             resolved = null;
         }
 
-        Cache[key] = (now, resolved);
+        if (!query.RefreshInstance) Cache[key] = (now, resolved);
         return resolved;
     }
 }

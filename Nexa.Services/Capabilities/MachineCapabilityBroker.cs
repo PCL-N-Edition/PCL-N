@@ -18,6 +18,8 @@ public sealed record MachineCapabilityQuery(
     string? MinecraftRootDirectory = null)
 {
     public string? JavaExecutablePath { get; init; }
+    public long? PlannedHeapMiB { get; init; }
+    public bool RefreshInstance { get; init; }
     public bool HasInstanceScope => !string.IsNullOrWhiteSpace(InstanceDirectory) || !string.IsNullOrWhiteSpace(InstanceId);
 }
 public sealed record MachineCapabilityRefresh;
@@ -37,6 +39,8 @@ public interface IMachineCapabilityProvider
 public interface ICapabilityProjection
 {
     IReadOnlyList<ICapability> Project(IReadOnlyDictionary<string, ICapability> values, DateTimeOffset timestamp);
+    IReadOnlyList<ICapability> Project(IReadOnlyDictionary<string, ICapability> values, DateTimeOffset timestamp,
+        MachineCapabilityQuery query) => Project(values, timestamp);
 }
 
 /// <summary>One off-thread, bounded collection shared by all concurrent readers.</summary>
@@ -76,7 +80,7 @@ public sealed class MachineCapabilityBroker
         ArgumentNullException.ThrowIfNull(query);
         cancellationToken.ThrowIfCancellationRequested();
         if (query.HasInstanceScope)
-            return Task.Run(() => CollectAsync(query, cacheResult: false), CancellationToken.None).WaitAsync(cancellationToken);
+            return Task.Run(() => CollectAsync(query, cacheResult: false, cancellationToken), CancellationToken.None).WaitAsync(cancellationToken);
         Task<MachineCapabilitySnapshot> task;
         lock (_gate)
         {
@@ -86,10 +90,11 @@ public sealed class MachineCapabilityBroker
         }
         return task.WaitAsync(cancellationToken);
     }
-    private async Task<MachineCapabilitySnapshot> CollectAsync(MachineCapabilityQuery query, bool cacheResult)
+    private async Task<MachineCapabilitySnapshot> CollectAsync(MachineCapabilityQuery query, bool cacheResult, CancellationToken cancellationToken = default)
     {
         DateTimeOffset timestamp = _clock.GetUtcNow();
-        var batches = await Task.WhenAll(_providers.Select(provider => CollectProviderAsync(provider, query, timestamp))).ConfigureAwait(false);
+        var batches = await Task.WhenAll(_providers.Select(provider => CollectProviderAsync(provider, query, timestamp, cancellationToken))).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         var values = _registry.Definitions.ToDictionary(definition => definition.Id,
             definition => definition.Unavailable(CapabilityAvailability.NotImplemented, timestamp, "尚未接入检测提供方"), StringComparer.Ordinal);
         foreach (var batch in batches) foreach (var value in batch) values[value.Id] = value;
@@ -113,7 +118,7 @@ public sealed class MachineCapabilityBroker
 
         foreach (ICapabilityProjection projection in _projections)
         {
-            foreach (ICapability value in projection.Project(values, timestamp))
+            foreach (ICapability value in projection.Project(values, timestamp, query))
             {
                 if (!_registry.ById.TryGetValue(value.Id, out ICapabilityDefinition? definition)
                     || !definition.Accepts(value))
@@ -137,23 +142,24 @@ public sealed class MachineCapabilityBroker
         // made every watcher re-query, re-collect, re-publish — the self-refresh loop.
         if (cacheResult)
         {
-            _store.Publish(_revisionId, snapshot.Revision);
+            _store.Publish(_revisionId, snapshot.Revision, cancellationToken);
         }
 
         return snapshot;
     }
     private async Task<IReadOnlyList<ICapability>> CollectProviderAsync(IMachineCapabilityProvider provider,
-        MachineCapabilityQuery query, DateTimeOffset timestamp)
+        MachineCapabilityQuery query, DateTimeOffset timestamp, CancellationToken cancellationToken)
     {
         var owned = _registry.Definitions.Where(definition => definition.Provider == provider.Id).ToArray();
         TimeSpan providerTimeout = string.Equals(provider.Id, MachineInstanceCatalog.JavaProviderId, StringComparison.Ordinal)
             ? TimeSpan.FromSeconds(Math.Max(12, _timeout.TotalSeconds))
             : _timeout;
-        using var timeout = new CancellationTokenSource(providerTimeout);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(providerTimeout);
         try
         {
             var values = await Task.Run(async () => await provider.CollectAsync(timestamp, query, timeout.Token).ConfigureAwait(false), CancellationToken.None)
-                .WaitAsync(providerTimeout).ConfigureAwait(false);
+                .WaitAsync(providerTimeout, cancellationToken).ConfigureAwait(false);
             HashSet<string> seen = new(StringComparer.Ordinal);
             foreach (var value in values)
                 if (!seen.Add(value.Id) || !_registry.ById.TryGetValue(value.Id, out var definition) || definition.Provider != provider.Id || !definition.Accepts(value))
@@ -163,6 +169,7 @@ public sealed class MachineCapabilityBroker
         catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)
         {
             timeout.Cancel();
+            cancellationToken.ThrowIfCancellationRequested();
             string reason = error is TimeoutException or OperationCanceledException ? "检测超时" : "检测失败：" + error.GetType().Name;
             return Array.AsReadOnly(owned.Select(definition => definition.Unavailable(CapabilityAvailability.TemporarilyUnavailable, timestamp, reason)).ToArray());
         }

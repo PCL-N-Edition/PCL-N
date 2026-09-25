@@ -152,12 +152,8 @@ public static class MinecraftRuntimeComposer
         LaunchPreflightGate preflight = new(host.StateStore, async (root, instance, plan, token) =>
         {
             var snapshot = await host.MachineCapabilities.ReadAsync(new MachineCapabilityQuery(plan.InstanceDirectory, instance, root)
-            { JavaExecutablePath = plan.JavaExecutablePath }, cancellationToken: token).ConfigureAwait(false);
-            var values = snapshot.Values.Where(value => value.Id != LaunchPolicyCatalog.MinecraftMemory.Id).ToList();
-            values.Add(plan.HeapLimitMiB > 0
-                ? LaunchPolicyCatalog.MinecraftMemory.Observe(plan.HeapLimitMiB, snapshot.Timestamp, "本次启动的堆内存配置")
-                : LaunchPolicyCatalog.MinecraftMemory.Unavailable(CapabilityAvailability.Unknown, snapshot.Timestamp, "自定义参数覆盖了堆内存配置"));
-            return CapabilityPreflightEngine.Evaluate(new MachineCapabilitySnapshot(snapshot.Revision, snapshot.Timestamp, values));
+            { JavaExecutablePath = plan.JavaExecutablePath, PlannedHeapMiB = plan.HeapLimitMiB, RefreshInstance = true }, cancellationToken: token).ConfigureAwait(false);
+            return CapabilityPreflightEngine.Evaluate(snapshot);
         });
         MinecraftLaunchCoordinator coordinator = new(
             minecraftRootDirectory,

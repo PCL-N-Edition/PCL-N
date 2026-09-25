@@ -59,6 +59,8 @@ internal static partial class Program
         ("whole run sampling retains history and private settings", () => { RunSamplingRetainsWholeRunAndPrivateSettings(); return ValueTask.CompletedTask; }),
         ("mod inventory uses metadata and marks partial evidence", () => { ModInventoryUsesMetadataAndMarksPartialEvidence(); return ValueTask.CompletedTask; }),
         ("preflight gate rejects stale and blocked continuation", PreflightGateRejectsStaleAndBlockedContinuation),
+        ("preflight scope carries policy and cancels providers", PreflightScopeCarriesPolicyAndCancelsProviders),
+        ("preflight refresh reads changed instance", PreflightRefreshReadsChangedInstance),
         ("rollouts keep cohorts and fail closed", RolloutsKeepCohortsAndFailClosed),
         ("Nexa updates reject legacy and wrong platform", NexaUpdatesRejectLegacyAndWrongPlatform),
         ("folder import requires resolvable parents", FolderImportRequiresResolvableParents),

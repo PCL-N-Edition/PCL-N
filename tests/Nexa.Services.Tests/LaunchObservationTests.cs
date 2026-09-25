@@ -9,6 +9,79 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static async ValueTask PreflightScopeCarriesPolicyAndCancelsProviders()
+    {
+        XsrStateStoreBuilder builder = new(); MachineCapabilityStateContract.DeclareState(builder);
+        var store = builder.Build();
+        MachineCapabilityBroker broker = new(new CapabilityRegistry(LaunchPolicyCatalog.Definitions()), [], store,
+            projections: [new LaunchPolicyProjection()]);
+        var query = new MachineCapabilityQuery(InstanceId: "selected") { PlannedHeapMiB = 4096 };
+        var snapshot = await broker.ReadAsync(query);
+        AssertEqual(4096L, snapshot.Get<long>(LaunchPolicyCatalog.MinecraftMemory.Id)!.Value);
+        snapshot = await broker.ReadAsync(query with { PlannedHeapMiB = -1 });
+        AssertEqual(CapabilityAvailability.Unknown, snapshot.Get<long>(LaunchPolicyCatalog.MinecraftMemory.Id)!.Availability);
+
+        TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = new ProbeProvider("probe", async (_, token) =>
+        {
+            entered.TrySetResult();
+            try { await Task.Delay(Timeout.Infinite, token); }
+            finally { stopped.TrySetResult(); }
+            return Array.Empty<ICapability>();
+        });
+        broker = new(new CapabilityRegistry([]), [provider], store);
+        using CancellationTokenSource cancel = new();
+        var pending = broker.ReadAsync(query, cancellationToken: cancel.Token);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancel.Cancel();
+        try { await pending; throw new InvalidOperationException("Expected canceled collection."); }
+        catch (OperationCanceledException) { }
+        await stopped.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        TaskCompletionSource sharedEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        int calls = 0;
+        provider = new ProbeProvider("probe", async (_, token) =>
+        {
+            Interlocked.Increment(ref calls); sharedEntered.TrySetResult();
+            await release.Task.WaitAsync(token);
+            return Array.Empty<ICapability>();
+        });
+        broker = new(new CapabilityRegistry([]), [provider], store);
+        using CancellationTokenSource readerCancel = new();
+        var firstReader = broker.ReadAsync(cancellationToken: readerCancel.Token);
+        await sharedEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var secondReader = broker.ReadAsync();
+        readerCancel.Cancel();
+        try { await firstReader; throw new InvalidOperationException("Expected canceled reader."); }
+        catch (OperationCanceledException) { }
+        release.TrySetResult();
+        await secondReader.WaitAsync(TimeSpan.FromSeconds(5));
+        AssertEqual(1, calls);
+    }
+
+    private static async ValueTask PreflightRefreshReadsChangedInstance()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string directory = CreateVersionDirectory(root, "selected", new System.Text.Json.Nodes.JsonObject
+            {
+                ["id"] = "selected",
+                ["mainClass"] = "first.Main",
+                ["type"] = "release",
+            });
+            var query = new MachineCapabilityQuery(directory, "selected", root);
+            var first = await MinecraftPrimaryInstanceScope.ResolveAsync(root, query, CancellationToken.None);
+            AssertTrue(first is not null);
+            await File.WriteAllTextAsync(Path.Combine(directory, "selected.json"), "{broken");
+            AssertTrue(await MinecraftPrimaryInstanceScope.ResolveAsync(root, query, CancellationToken.None) is not null);
+            AssertTrue(await MinecraftPrimaryInstanceScope.ResolveAsync(root, query with { RefreshInstance = true }, CancellationToken.None) is null);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     private static void RunSamplingRetainsWholeRunAndPrivateSettings()
     {
         RunResourceHistogram histogram = new();
