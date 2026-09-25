@@ -7,7 +7,8 @@ namespace Nexa.Services.Telemetry;
 /// <summary>Bounded, anonymous facts only. The caller owns the authenticated HTTP client.</summary>
 public sealed partial class CloudflareTelemetryTransport(HttpClient client, Func<bool>? compactBatches = null) : ITelemetryTransport
 {
-    public int MaximumBatchSize => compactBatches?.Invoke() == true ? 20 : 50;
+    private static readonly string[] CommonKeys = ["version", "os", "arch", "result"];
+    public int MaximumBatchSize => compactBatches?.Invoke() == true ? 5 : 10;
 
     public async Task<bool> SendAsync(IReadOnlyList<TelemetryEvent> batch, CancellationToken cancellationToken = default)
     {
@@ -22,9 +23,8 @@ public sealed partial class CloudflareTelemetryTransport(HttpClient client, Func
 
     internal static bool IsAllowed(TelemetryEvent item) =>
         TelemetryEventCatalog.Level(item.Name) == item.Level
-        && item.Properties.Count == 4
-        && item.Properties.Keys.All(key => key is "version" or "os" or "arch" or "result")
-        && item.Properties.Values.All(value => value.Length <= 64)
+        && CommonKeys.All(key => item.Properties.TryGetValue(key, out var value) && value.Length <= 64)
+        && DiagnosticTelemetry.ValidExtras(item)
         && VersionPattern().IsMatch(item.Properties["version"])
         && item.Properties["os"] is "windows" or "linux" or "macos"
         && item.Properties["arch"] is "x64" or "arm64" or "x86"

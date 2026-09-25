@@ -329,6 +329,7 @@ internal static class Program
         if (telemetrySession is not null)
         {
             host.Logging.AddSink(telemetrySession);
+            operationLog.Diagnostics = telemetrySession;
             rollouts.Record = telemetrySession.Record;
             updateService.Record = telemetrySession.Record;
         }

@@ -8,7 +8,7 @@ using Nexa.Xsr.State;
 namespace Nexa.Services.Telemetry;
 
 /// <summary>Session-local tiered upload lifetime. No stable installation identifier.</summary>
-public sealed class LauncherTelemetrySession : IDisposable, IXsrStateObserver, ILogSink
+public sealed partial class LauncherTelemetrySession : IDisposable, IXsrStateObserver, ILogSink, ILogOperationSink
 {
     private readonly TelemetryService _telemetry;
     private readonly SettingsService _settings;
@@ -30,6 +30,7 @@ public sealed class LauncherTelemetrySession : IDisposable, IXsrStateObserver, I
         if (LauncherTelemetryPolicy.IsRequired(_version)) telemetry.RequireDiagnostics();
         settings.Changed += OnSettingsChanged;
         OnSettingsChanged(0);
+        if (LauncherTelemetryPolicy.IsRequired(_version)) Record("diagnostic.session", "ok");
         Record("app.started", "ok");
         _ = UploadAsync();
     }
@@ -40,11 +41,15 @@ public sealed class LauncherTelemetrySession : IDisposable, IXsrStateObserver, I
         {
             if (_disposed) return;
             bool consent = LauncherTelemetryPolicy.IsRequired(_version) || _settings.GetValue<bool>("TelemetryExperienceProgram").Value;
+            bool starting = !_telemetry.Consent && consent;
             _telemetry.Consent = consent;
+            if (starting) { _features.Clear(); Record("diagnostic.session", "ok"); }
         }
     }
 
-    public void Record(string name, string result)
+    public void Record(string name, string result) => RecordDetails(name, result, null);
+
+    private void RecordDetails(string name, string result, IReadOnlyDictionary<string, string>? details)
     {
         if (Volatile.Read(ref _disposed) || TelemetryEventCatalog.Level(name) is not { } level) return;
         var properties = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -54,18 +59,22 @@ public sealed class LauncherTelemetrySession : IDisposable, IXsrStateObserver, I
             ["arch"] = RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
             ["result"] = result,
         };
+        if (details is not null) foreach (var pair in details) properties.Add(pair.Key, pair.Value);
         if (level == TelemetryLevel.Necessary) _telemetry.RecordNecessary(name, properties);
         else _telemetry.Record(name, properties);
     }
 
     public void Write(LogEntry entry, string formattedLine)
     {
-        // Classification only: never forward any log text, path, account or exception data.
-        if (entry.Level == LogLevel.Error && entry.Module != "Telemetry") Record("app.failure", "failed");
+        // Symbol-only diagnostic errors; free-form log bodies remain local.
+        if (entry.Module == "Telemetry") return;
+        if (entry.Level == LogLevel.Error) Record("app.failure", "failed");
+        if (entry.Level is LogLevel.Error or LogLevel.Warn) RecordError(entry.Module, entry.Level == LogLevel.Error ? "error" : "warning", entry.ExceptionText);
     }
 
     public void OnChanged(XsrStateChange change)
     {
+        ObserveDiagnostics(change);
         if (change.SemanticId == TaskCenterStateContract.EntriesKey)
         {
             var tasks = _telemetry.StateStore.ReadCollection<TaskCenterEntry>(change.Id);
@@ -132,7 +141,12 @@ public sealed class LauncherTelemetrySession : IDisposable, IXsrStateObserver, I
             do
             {
                 lock (_gate) { if (_disposed) return; }
-                try { await _telemetry.FlushAsync(_transport, _stop.Token).ConfigureAwait(false); }
+                SampleResources();
+                try
+                {
+                    for (int batch = 0; batch < 10; batch++)
+                        if (await _telemetry.FlushAsync(_transport, _stop.Token).ConfigureAwait(false) == 0) break;
+                }
                 catch (OperationCanceledException) { }
                 catch (Exception error) when (error is HttpRequestException or IOException)
                 { _log.Debug("Telemetry", "遥测暂未发送，将在下个周期重试。"); }

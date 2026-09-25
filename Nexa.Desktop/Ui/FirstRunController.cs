@@ -135,9 +135,9 @@ internal sealed class FirstRunController : IDisposable
         if (_status.TelemetryRequired) titles[2] = "帮助改进测试版本";
         string[] descriptions = ["先完成几项设置，然后开始你的 Minecraft。",
             "账户、设置、缓存和日志将保存在这里。游戏目录单独管理。" + (_status.LocationLocked ? "\n此位置由环境变量指定。" : "\n更换位置时，请选择一个空文件夹。"),
-            "必要遥测始终启用，用于统计应用运行和更新结果。\n可选诊断信息用于用户体验改进计划，包含游戏和任务运行结果，可在设置中关闭。两者均不包含账户、路径或原始日志。",
+            "必要遥测始终启用，用于统计应用运行和更新结果。\n可选诊断信息用于用户体验改进计划，包含脱敏错误堆栈、耗时、资源占用、算法指标和功能使用情况，可在设置中关闭。不上传账户、路径或日志正文。",
             "确认以下选择。开始使用后，NexaCL 会自动重新打开。"];
-        if (_status.TelemetryRequired) descriptions[2] = "必要遥测始终启用。CI、Alpha 和 Beta 还必须启用诊断信息，用于用户体验改进计划。\n仅发送版本、系统、架构和分类运行结果，不包含账户、路径或原始日志。";
+        if (_status.TelemetryRequired) descriptions[2] = "必要遥测始终启用。CI、Alpha 和 Beta 还必须启用诊断信息，用于用户体验改进计划。\n诊断包含脱敏错误堆栈、耗时、资源占用、算法指标及功能使用情况，不上传账户、路径或日志正文。";
         SetText("SetupStep", $"{Step + 1} / 4 · {labels[Step]}"); SetText("SetupTitle", titles[Step]); SetText("SetupDescription", descriptions[Step]);
         SetText("SetupPath", _directory); SetText("SetupSummary", $"数据位置\n{_directory}\n\n必要遥测：已启用\n诊断信息：{(_consent ? "已启用" : "已关闭")}");
         Show("SetupDirectory", Step == 1); Show("SetupConsent", Step == 2); Show("SetupSummary", Step == 3); Show("SetupBack", Step > 0);

@@ -15,7 +15,12 @@ public sealed record InstallCatalogVersion(string Id, string Detail, bool Stable
     IReadOnlyList<InstallDownload>? Downloads = null, string? Warning = null, string? ForgeRequirement = null, string? FabricRequirement = null);
 public sealed record InstallCatalogState(long Revision, string GameVersion, IReadOnlyList<InstallCatalogSnapshot> Catalogs);
 public sealed record InstallCatalogSnapshot(long Revision, string GameVersion, InstallLoader? Loader,
-    IReadOnlyList<InstallCatalogVersion> Versions, bool Loading, string? Error = null, string? Unsupported = null);
+    IReadOnlyList<InstallCatalogVersion> Versions, bool Loading, string? Error = null, string? Unsupported = null)
+{
+    public bool? CacheHit { get; init; }
+    public int? InputCount { get; init; }
+    public double? NormalizeMilliseconds { get; init; }
+}
 public interface IInstallCatalogSource
 {
     Task<IReadOnlyList<InstallCatalogVersion>> GetGamesAsync(CancellationToken token);

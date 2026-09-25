@@ -66,6 +66,7 @@ public sealed class LogOperation : IDisposable
             if (_finished) return;
             _finished = true;
             Write(level, outcome, exceptionText);
+            _log.ObserveOperation(_module, Stopwatch.GetElapsedTime(_startedAt), outcome.StartsWith("completed", StringComparison.Ordinal));
         }
     }
 

@@ -12,6 +12,18 @@ namespace Nexa.Services.Logging;
 /// </summary>
 public sealed class LogService
 {
+    internal void ObserveOperation(string module, TimeSpan duration, bool succeeded)
+    {
+        ILogSink[] sinks;
+        lock (_gate) sinks = [.. _sinks];
+        foreach (var sink in sinks)
+        {
+            if (sink is not ILogOperationSink observer) continue;
+            try { observer.OnOperation(module, duration, succeeded); }
+            catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException) { }
+        }
+    }
+
     public const string OwnerName = "Nexa.Services.Logging";
 
     /// <summary>
@@ -211,4 +223,9 @@ public sealed class LogService
             }
         }
     }
+}
+
+public interface ILogOperationSink
+{
+    void OnOperation(string subsystem, TimeSpan duration, bool succeeded);
 }

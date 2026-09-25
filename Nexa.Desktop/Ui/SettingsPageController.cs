@@ -226,7 +226,7 @@ internal sealed partial class SettingsPageController : IDisposable
         if (_selected == "advanced") BuildUpdateCard();
         if (_selected == "privacy")
         {
-            var notice = Text(_sections, "必要遥测始终启用，仅包含版本、系统、架构及分类运行结果。诊断信息属于用户体验改进计划；正式版可关闭，测试版必须启用。均不上传账户、文件路径或原始日志。", 12, Muted, height: 72);
+            var notice = Text(_sections, "必要遥测始终启用，仅包含版本、系统、架构及分类运行结果。诊断信息包括脱敏错误堆栈、耗时、资源占用、算法指标与功能使用情况；正式版可关闭，测试版必须启用。不上传账户、路径或日志正文。", 12, Muted, height: 72);
             _shell.Tree.GetComponent<XsrUiVisualStyle>(notice)!.WrapText = true;
         }
         var entries = _catalog!.Entries.Where(item => item.Scope == "global" && item.Page == _selected && (_instanceDirectory is null || item.Definition?.InstanceOverride == true) && !item.IsRuntimeDetail && (_developer || !item.DeveloperOnly)).ToArray();

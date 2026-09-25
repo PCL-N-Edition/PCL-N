@@ -18,6 +18,7 @@ namespace Nexa.Services.Composition;
 public sealed class XsrOperationLog
 {
     private LogService? _log;
+    public Nexa.Services.Telemetry.LauncherTelemetrySession? Diagnostics { get; set; }
 
     public XsrOperationLog()
     {
@@ -40,6 +41,7 @@ public sealed class XsrOperationLog
     /// </summary>
     public void WriteIntent(XsrSemanticId command, XsrCorrelationId correlationId = default)
     {
+        Diagnostics?.RecordFeature(command.Value);
         Write(LogLevel.Info, "UI", $"Intent received command={command.Value} cid={correlationId}");
     }
 
@@ -75,6 +77,7 @@ public sealed class XsrOperationLog
 
         public void OnCompleted(XsrDispatchObservation observation)
         {
+            owner.Diagnostics?.RecordOperation(observation.SemanticId.Value, observation.Duration, observation.IsSuccess, observation.FaultType);
             string module = observation.Kind == XsrDispatchKind.Command ? "Command" : "Query";
             if (observation.IsSuccess)
             {
@@ -126,6 +129,7 @@ public sealed class XsrOperationLog
     {
         public void OnExecuted(XsrScheduledObservation observation)
         {
+            owner.Diagnostics?.RecordMetric("scheduler.duration.ms", observation.Duration.TotalMilliseconds, observation.Outcome == XsrScheduledOutcome.Faulted ? "failed" : "ok");
             owner.Write(
                 observation.Outcome == XsrScheduledOutcome.Faulted ? LogLevel.Error : LogLevel.RealTime,
                 "Scheduled",

@@ -83,7 +83,8 @@ internal static partial class Program
         AssertEqual(1, events.Count(item => item.Name == "game.exited"));
         AssertEqual(1, events.Count(item => item.Name == "app.failure"));
         AssertTrue(events.All(CloudflareTelemetryTransport.IsAllowed));
-        AssertFalse(TelemetryService.SerializeBatch(events).Contains("private", StringComparison.Ordinal));
+        foreach (string secret in new[] { "private-instance-name", "private-path", "private-exception", "private-token", "private-log" })
+            AssertFalse(TelemetryService.SerializeBatch(events).Contains(secret, StringComparison.Ordinal));
         session.Dispose();
         session.Record("app.failure", "failed");
         AssertEqual(0, telemetry.PendingCount);
