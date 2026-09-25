@@ -1,4 +1,5 @@
 using Nexa.Services.Minecraft;
+using Nexa.Services.Minecraft.Process;
 
 namespace Nexa.Services.Capabilities;
 
@@ -17,18 +18,20 @@ public static class ModCatalog
         "mod.json.size", "模组文件总量", "模组", ProviderId, CapabilityKind.Metric, CapabilityStability.Dynamic, unit: "bytes");
     public static readonly CapabilityDefinition<bool> ModRuntimeProfileKnown = new(
         "mod.runtime_profile.known", "模组画像已知", "模组", ProviderId, CapabilityKind.Fact, CapabilityStability.Dynamic);
+    public static readonly CapabilityDefinition<string> ModMetadataFingerprint = new(
+        "mod.metadata.fingerprint", "模组元数据指纹", "模组", ProviderId, CapabilityKind.Fact, CapabilityStability.Dynamic);
 
     public static IReadOnlyList<ICapabilityDefinition> Definitions() => (ICapabilityDefinition[])
     [
-        ModCount, ModEnabled, ModDisabled, ModJsonSize, ModRuntimeProfileKnown,
+        ModCount, ModEnabled, ModDisabled, ModJsonSize, ModRuntimeProfileKnown, ModMetadataFingerprint,
     ];
 }
 
 /// <summary>
 /// Scans the primary instance's mods directory: jar count (the estimator's mod_count input —
 /// it read a fact nobody produced, which is why estimates sat at Low confidence forever),
-/// enabled/disabled split (.disabled / .jar.disabled suffix), and total bytes. Deeper per-mod
-/// facts (classes, dependencies) need jar parsing and stay explicitly unknown.
+/// enabled/disabled split (.disabled / .jar.disabled suffix), total bytes and a bounded metadata
+/// fingerprint. Metadata identity is not a learned runtime resource profile.
 /// </summary>
 public sealed class ModCapabilityProvider(string? minecraftRootDirectory) : IMachineCapabilityProvider
 {
@@ -48,6 +51,11 @@ public sealed class ModCapabilityProvider(string? minecraftRootDirectory) : IMac
 
         const string source = "mods 目录扫描";
         string mods = Path.Combine(primary.GameDirectory, "mods");
+        var inventory = await LaunchModInventoryReader.ReadAsync(primary.GameDirectory, cancellationToken).ConfigureAwait(false);
+        string? fingerprint = ModInventoryFingerprint.Create(inventory);
+        ICapability fingerprintFact = fingerprint is null
+            ? ModCatalog.ModMetadataFingerprint.Unavailable(CapabilityAvailability.DependencyMissing, timestamp, "模组元数据清单不完整")
+            : ModCatalog.ModMetadataFingerprint.Observe(fingerprint, timestamp, source);
         if (!Directory.Exists(mods))
         {
             return Array.AsReadOnly(new ICapability[]
@@ -57,6 +65,7 @@ public sealed class ModCapabilityProvider(string? minecraftRootDirectory) : IMac
                 ModCatalog.ModDisabled.Observe(0, timestamp, source + "（目录不存在）"),
                 ModCatalog.ModJsonSize.Observe(0, timestamp, source + "（目录不存在）"),
                 ModCatalog.ModRuntimeProfileKnown.Observe(false, timestamp, source),
+                fingerprintFact,
             });
         }
 
@@ -97,9 +106,9 @@ public sealed class ModCapabilityProvider(string? minecraftRootDirectory) : IMac
             ModCatalog.ModEnabled.Observe(enabled, timestamp, source),
             ModCatalog.ModDisabled.Observe(disabled, timestamp, source),
             ModCatalog.ModJsonSize.Observe(bytes, timestamp, source),
-            // Per-mod class/dependency profiling needs jar parsing — a later slice; the
-            // estimator consumes this as an explicit low-confidence reason, not a guess.
-            ModCatalog.ModRuntimeProfileKnown.Observe(false, timestamp, source + "（逐模组解析未接入）"),
+            // Parsed identities do not establish learned resource costs.
+            ModCatalog.ModRuntimeProfileKnown.Observe(false, timestamp, source + "（模组运行资源画像尚不可用）"),
+            fingerprintFact,
         });
     }
 

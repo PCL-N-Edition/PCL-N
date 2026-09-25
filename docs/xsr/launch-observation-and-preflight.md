@@ -14,6 +14,13 @@ looks similar. Different roots with the same instance name remain different scop
 necessary boundary, not proof of configuration equivalence: mod/settings fingerprints and workload
 matching remain required for a reliable learned model.
 
+History now additionally requires an exact, versioned enabled-mod metadata fingerprint. It includes
+IDs, versions, metadata formats and sorted dependency declarations; enumeration order is irrelevant.
+Incomplete inventories, unknown versions or incomplete dependencies cannot supply this fingerprint.
+The host reuses its bounded context scan and the capability provider uses the same reader. Legacy
+history without a fingerprint cannot calibrate. This prevents equal-count mod replacements from
+matching; it does not verify JAR content, runtime activation, configuration or workload equivalence.
+
 Host history admission requires a normal exit (code zero), at least 60 seconds and 30 successful
 observations, uninterrupted sampling, no observed settings changes (including the final read), and
 no session crash evidence. Rejected runs remain diagnostic observations but do not calibrate the

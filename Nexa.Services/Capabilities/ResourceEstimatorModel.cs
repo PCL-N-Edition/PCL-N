@@ -14,7 +14,10 @@ public sealed record ResourceObservationSample(
     long CommitPeakMiB,
     long GpuPeakMiB,
     long LaunchDurationMilliseconds,
-    DateTimeOffset Timestamp);
+    DateTimeOffset Timestamp)
+{
+    public string? ModFingerprint { get; init; }
+}
 
 public sealed class ResourceObservationHistory(int capacity = 128)
 {
@@ -115,7 +118,9 @@ internal static class ResourceEstimateModel
         long commitRuntime = heapRuntime + nativeRuntime + resourceHeap + commitReserve;
 
         string? scope = NormalizeInstance(instanceDirectory);
-        ResourceObservationSample[] samples = scope is null ? [] : history.Snapshot()
+        string? fingerprint = ReadString(values, "mod.metadata.fingerprint");
+        ResourceObservationSample[] samples = scope is null || string.IsNullOrEmpty(fingerprint) ? [] : history.Snapshot()
+            .Where(item => string.Equals(item.ModFingerprint, fingerprint, StringComparison.Ordinal))
             .Where(item => string.Equals(NormalizeInstance(item.InstanceKey), scope,
                 OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)).ToArray();
         double loaderSimilarity = samples.Length == 0 ? 0 : samples.Count(item => string.Equals(item.Loader, loader, StringComparison.OrdinalIgnoreCase)) / (double)samples.Length;

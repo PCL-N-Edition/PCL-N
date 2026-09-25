@@ -121,7 +121,8 @@ internal sealed partial class SettingsPageController
             // Action definitions are operations, not observations.
             var visible = _machine.Values
                 .Where(value => value.Definition.Kind != CapabilityKind.Action && value.Definition.Kind != CapabilityKind.Policy)
-                .Where(value => value.Id is not "input.gyroscope.available" and not "input.haptics.available")
+                .Where(value => value.Id is not "input.gyroscope.available" and not "input.haptics.available"
+                    and not "mod.metadata.fingerprint")
                 .Where(value => value.Availability != CapabilityAvailability.NotImplemented
                     || value.Reason != "尚未接入检测提供方")
                 .GroupBy(value => value.Id, StringComparer.Ordinal)

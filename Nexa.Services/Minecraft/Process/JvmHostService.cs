@@ -119,8 +119,8 @@ public sealed class JvmHostService : IJvmHost
         _ = Describe(plan); // validate and freeze the environment view before spawning.
         MinecraftProcessSession session = await _processes.StartAsync(plan, instanceId, cancellationToken).ConfigureAwait(false);
         long launchDuration = Math.Max(0, Environment.TickCount64 - started);
-        _ = ObserveAsync(session, plan, launchDuration);
-        _ = CollectContextAsync(session, plan);
+        Task<JvmRunContext?> context = CollectContextAsync(session, plan);
+        _ = ObserveAsync(session, plan, launchDuration, context);
         return session;
     }
 
@@ -164,7 +164,8 @@ public sealed class JvmHostService : IJvmHost
         { return new(false, "control_failed", exception.Message); }
     }
 
-    private async Task ObserveAsync(MinecraftProcessSession session, MinecraftLaunchPlan plan, long launchDuration)
+    private async Task ObserveAsync(MinecraftProcessSession session, MinecraftLaunchPlan plan, long launchDuration,
+        Task<JvmRunContext?> contextTask)
     {
         long peakWorking = 0, peakPrivate = 0, peakThreads = 0, cpuMs = 0, ioRead = 0, ioWrite = 0;
         RunResourceHistogram workingSamples = new();
@@ -265,7 +266,9 @@ public sealed class JvmHostService : IJvmHost
         ResourceObservationSample? historySample = CreateHistorySample(plan, snapshot, observation,
             observedMilliseconds, successfulSamples, samplingComplete,
             epoch == 0 && JvmRunSettings.Read(plan.GameDirectory) == settings);
-        if (historySample is not null) _history?.Record(historySample);
+        if (historySample is not null && await contextTask.ConfigureAwait(false) is { } context
+            && ModInventoryFingerprint.Create(context.Inventory) is { } fingerprint)
+            _history?.Record(historySample with { ModFingerprint = fingerprint });
     }
 
     internal static ResourceObservationSample? CreateHistorySample(MinecraftLaunchPlan plan,
@@ -294,9 +297,8 @@ public sealed class JvmHostService : IJvmHost
         }
     }
 
-    private async Task CollectContextAsync(MinecraftProcessSession session, MinecraftLaunchPlan plan)
+    private async Task<JvmRunContext?> CollectContextAsync(MinecraftProcessSession session, MinecraftLaunchPlan plan)
     {
-        if (_store is null) return;
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
@@ -316,15 +318,18 @@ public sealed class JvmHostService : IJvmHost
             var context = new JvmRunContext(session.Snapshot.SessionId, plan.ModLoader.Kind.ToString(),
                 components.GetValueOrDefault(plan.ModLoader.Kind.ToString()) ?? "unknown", inventory)
             { GameVersion = game, Components = components };
+            if (_store is null) return context;
             var id = _store.Resolve(JvmHostStateContract.ContextsKey);
             for (int attempt = 0; attempt < 8; attempt++)
             {
                 var current = _store.ReadCollection<JvmRunContext>(id);
                 var removals = current.Items.Take(Math.Max(0, current.Items.Count - 7)).Select(static item => item.SessionId).ToArray();
-                if (_store.PublishDelta(id, new XsrCollectionDelta<JvmRunContext, Guid>(current.Revision, [context], removals)).IsApplied) return;
+                if (_store.PublishDelta(id, new XsrCollectionDelta<JvmRunContext, Guid>(current.Revision, [context], removals)).IsApplied) return context;
             }
+            return context;
         }
         catch (Exception e) when (e is not OutOfMemoryException and not AccessViolationException) { }
+        return null;
     }
 
     private void Publish(JvmHostObservation observation)
