@@ -67,12 +67,19 @@ internal static partial class Program
             string folder = Path.Combine(stage, InstallTaskJournal.DirectoryName, "metadata");
             string path = Directory.EnumerateFiles(folder, "*.json").Single(file => JsonNode.Parse(File.ReadAllText(file))!["request"]!.ToString().StartsWith("vanilla:", StringComparison.Ordinal));
             string original = File.ReadAllText(path);
-            var corrupt = JsonNode.Parse(original)!; corrupt["payload"]!["id"] = "corrupted"; File.WriteAllText(path, corrupt.ToJsonString());
+            var corrupt = JsonNode.Parse(original)!; corrupt["payload"]!["id"] = "corrupted";
+            corrupt["sha256"] = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(corrupt["payload"]!.AsObject(),
+                    Nexa.Services.Minecraft.Management.RecoveryJsonContext.Default.JsonObject)));
+            File.WriteAllText(path, corrupt.ToJsonString());
             try { await reopened.FetchVanillaVersionJsonAsync("1.21.1", default); throw new InvalidOperationException("Corrupt cache silently refetched."); } catch (InvalidDataException) { }
             AssertEqual(0, changed.VanillaReads);
             File.WriteAllText(path, original);
             using (var oversized = File.OpenWrite(path)) oversized.SetLength(16 * 1024 * 1024 + 1);
             try { await reopened.FetchVanillaVersionJsonAsync("1.21.1", default); throw new InvalidOperationException("Oversized cache accepted."); } catch (InvalidDataException) { }
+            File.Delete(path);
+            try { await reopened.FetchVanillaVersionJsonAsync("1.21.1", default); throw new InvalidOperationException("Deleted pinned metadata silently refetched."); } catch (InvalidDataException) { }
+            AssertEqual(0, changed.VanillaReads);
         }
         finally { Directory.Delete(root, true); }
     }

@@ -25,9 +25,16 @@ internal sealed class LoaderInstallerCache : IDisposable
     internal async Task<bool> RestoreAsync(string destination, CancellationToken token)
     {
         RecoveryBlobStore.CheckLinks(Receipt); RecoveryBlobStore.CheckLinks(Artifact);
-        if (!File.Exists(Receipt)) return false;
+        if (!File.Exists(Receipt)) { RecoveryRecordAuthority.VerifyAbsent(Receipt); return false; }
         if (new FileInfo(Receipt).Length != 64) throw new InvalidDataException("安装器身份记录无效。");
-        string expected = await File.ReadAllTextAsync(Receipt, token).ConfigureAwait(false);
+        byte[] receipt = new byte[64];
+        await using (var receiptStream = File.OpenRead(Receipt))
+        {
+            await receiptStream.ReadExactlyAsync(receipt, token).ConfigureAwait(false);
+            if (receiptStream.ReadByte() != -1) throw new InvalidDataException("安装器身份记录已改变。");
+        }
+        RecoveryRecordAuthority.Verify(Receipt, receipt);
+        string expected = Encoding.ASCII.GetString(receipt);
         if (!expected.All(char.IsAsciiHexDigit) || !File.Exists(Artifact)) throw new InvalidDataException("安装器缓存不完整。");
         await using var source = File.OpenRead(Artifact);
         if (source.Length > 512L * 1024 * 1024) throw new InvalidDataException("安装器缓存过大。");
@@ -45,6 +52,7 @@ internal sealed class LoaderInstallerCache : IDisposable
         RecoveryBlobStore.CheckLinks(temporary); RecoveryBlobStore.CheckLinks(receiptPart);
         RecoveryBlobStore.CheckLinks(Artifact); RecoveryBlobStore.CheckLinks(Receipt);
         if (File.Exists(Receipt)) throw new InvalidDataException("不能覆盖已有的安装器身份。");
+        RecoveryRecordAuthority.VerifyAbsent(Receipt);
         await using (var source = File.OpenRead(sourcePath))
         await using (var output = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
         {
@@ -61,6 +69,7 @@ internal sealed class LoaderInstallerCache : IDisposable
         }
         token.ThrowIfCancellationRequested();
         File.Move(temporary, Artifact, true);
+        await RecoveryRecordAuthority.AuthorizeAsync(Receipt, Encoding.ASCII.GetBytes(digest), token).ConfigureAwait(false);
         File.Move(receiptPart, Receipt);
     }
 

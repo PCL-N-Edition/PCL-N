@@ -70,6 +70,7 @@ internal sealed class PersistentInstallMetadataSource(string stage, IMinecraftIn
         await using var lease = await LockAsync(Path.Combine(directory, ".lock"), token).ConfigureAwait(false);
         RecoveryBlobStore.CheckLinks(path);
         if (File.Exists(path)) return await ReadAsync(path, request, token).ConfigureAwait(false);
+        RecoveryRecordAuthority.VerifyAbsent(path);
         JsonObject payload = (JsonObject)(await fetch(token).ConfigureAwait(false)).DeepClone();
         byte[] content = JsonSerializer.SerializeToUtf8Bytes(payload, RecoveryJsonContext.Default.JsonObject);
         string hash = Convert.ToHexString(SHA256.HashData(content));
@@ -87,7 +88,8 @@ internal sealed class PersistentInstallMetadataSource(string stage, IMinecraftIn
         {
             await using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true))
             { await output.WriteAsync(bytes, token).ConfigureAwait(false); await output.FlushAsync(token).ConfigureAwait(false); output.Flush(true); }
-            token.ThrowIfCancellationRequested(); RecoveryBlobStore.CheckLinks(path); File.Move(temporary, path, false);
+            await RecoveryRecordAuthority.AuthorizeAsync(path, bytes, token).ConfigureAwait(false);
+            RecoveryBlobStore.CheckLinks(path); File.Move(temporary, path, false);
         }
         finally { RecoveryBlobStore.CheckLinks(temporary); if (File.Exists(temporary)) File.Delete(temporary); }
         return (JsonObject)payload.DeepClone();
@@ -99,6 +101,7 @@ internal sealed class PersistentInstallMetadataSource(string stage, IMinecraftIn
         if (input.Length > MaxRecordBytes) throw new InvalidDataException("安装元数据超过单项大小限制。");
         byte[] bytes = new byte[(int)input.Length]; await input.ReadExactlyAsync(bytes, token).ConfigureAwait(false);
         if (input.ReadByte() != -1) throw new InvalidDataException("安装元数据在读取时发生变化。");
+        RecoveryRecordAuthority.Verify(path, bytes);
         var envelope = JsonNode.Parse(bytes) as JsonObject ?? throw new InvalidDataException("安装元数据无效。");
         if (envelope["version"]?.GetValue<int>() != 1 || envelope["request"]?.GetValue<string>() != request || envelope["payload"] is not JsonObject payload)
             throw new InvalidDataException("安装元数据与任务请求不匹配。");

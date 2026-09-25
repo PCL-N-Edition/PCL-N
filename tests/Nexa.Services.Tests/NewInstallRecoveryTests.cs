@@ -42,12 +42,16 @@ internal static partial class Program
             string manifest = Path.Combine(root, "versions", "resumable", "resumable.json");
             AssertFalse(File.Exists(manifest));
             string stage = Directory.GetDirectories(Path.Combine(root, ".nexa-install-jobs")).Single();
+            string injected = Path.Combine(stage, "libraries", "attacker.jar");
+            Directory.CreateDirectory(Path.GetDirectoryName(injected)!);
+            File.WriteAllText(injected, "untrusted leftover");
             var plan = await InstallTaskJournal.ReadAsync(root, stage, default);
             AssertTrue(plan.Command.EditFingerprint is null);
             List<string> downloaded = []; var metadata = new FakeMetadata();
             using var recovery = new InstallFixture(metadata, connectionFactory: source => { downloaded.Add(source); return new ServingConnection(PayloadFor(source)); });
             AssertTrue((await recovery.Install.RecoverPendingAsync(new([root]))).IsSuccess);
             AssertTrue(File.Exists(manifest)); AssertEqual(0, metadata.VanillaReads);
+            AssertFalse(File.Exists(Path.Combine(root, "libraries", "attacker.jar")));
             if (downloaded.Contains(completedSource!)) throw new InvalidOperationException("Repeated: " + completedSource + " transfers: " + string.Join(",", downloaded)); AssertTrue(downloaded.Count > 0);
             AssertEqual(InstallTaskStatus.Completed, await InstallTaskJournal.ReadStatusAsync(stage, plan, default));
             int transfers = downloaded.Count;

@@ -18,7 +18,16 @@ internal sealed class ModpackInstallJournal
     internal string Destination => ForgeInstallService.Contained(Command.RootDirectory, "versions/" + Command.Pack.InstanceId);
     internal bool Complete => Marker("complete");
     internal bool Canceled => Marker("canceled");
-    internal bool Prepared => File.Exists(Path.Combine(Stage, "publication.json"));
+    internal bool Prepared
+    {
+        get
+        {
+            string path = Path.Combine(Stage, "publication.json");
+            if (File.Exists(path)) return true;
+            RecoveryRecordAuthority.VerifyAbsent(path);
+            return false;
+        }
+    }
     private ModpackInstallJournal(string stage, MinecraftModpackCommand command) { Stage = stage; Command = command; }
     internal static async Task<ModpackInstallJournal> CreateAsync(string root, MinecraftModpackCommand command, CancellationToken token)
     {
@@ -54,7 +63,8 @@ internal sealed class ModpackInstallJournal
     }
     internal async Task<ModpackFile[]?> ReadFilesAsync(CancellationToken token)
     {
-        if (!File.Exists(Path.Combine(Stage, "files.json"))) return null;
+        if (!File.Exists(Path.Combine(Stage, "files.json")))
+        { RecoveryRecordAuthority.VerifyAbsent(Path.Combine(Stage, "files.json")); return null; }
         return JsonSerializer.Deserialize(await ReadAsync(Stage, "files.json", 16 * 1024 * 1024, token).ConfigureAwait(false), ModpackJournalJson.Default.ModpackFileArray)
             ?? throw new InvalidDataException("整合包下载计划为空。");
     }
@@ -118,9 +128,10 @@ internal sealed class ModpackInstallJournal
     private bool Marker(string name)
     {
         string path = Path.Combine(Stage, name); RecoveryBlobStore.CheckLinks(path);
-        if (!File.Exists(path)) return false;
+        if (!File.Exists(path)) { RecoveryRecordAuthority.VerifyAbsent(path); return false; }
         using var input = File.OpenRead(path);
         if (input.ReadByte() != '1' || input.ReadByte() != -1) throw new InvalidDataException("整合包任务状态无效。");
+        RecoveryRecordAuthority.Verify(path, "1"u8);
         return true;
     }
     private static async Task<byte[]> ReadAsync(string stage, string name, int limit, CancellationToken token)
@@ -130,6 +141,7 @@ internal sealed class ModpackInstallJournal
         if (input.Length > limit) throw new InvalidDataException("整合包记录过大。");
         byte[] bytes = new byte[(int)input.Length]; await input.ReadExactlyAsync(bytes, token).ConfigureAwait(false);
         if (input.ReadByte() != -1) throw new IOException("整合包记录读取期间发生变化。");
+        RecoveryRecordAuthority.Verify(path, bytes);
         return bytes;
     }
     private static async Task WriteAsync(string stage, string name, byte[] bytes, CancellationToken token)
@@ -141,7 +153,8 @@ internal sealed class ModpackInstallJournal
         {
             await using (var output = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             { await output.WriteAsync(bytes, token).ConfigureAwait(false); await output.FlushAsync(token).ConfigureAwait(false); output.Flush(true); }
-            token.ThrowIfCancellationRequested(); File.Move(temp, path);
+            await RecoveryRecordAuthority.AuthorizeAsync(path, bytes, token).ConfigureAwait(false);
+            File.Move(temp, path);
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
     }

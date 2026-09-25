@@ -461,6 +461,8 @@ public sealed partial class MinecraftInstallService : IDisposable
                         $"下载 {Path.GetFileName(file.Destination)} 失败：{(transfer.Errors.Count > 0 ? transfer.Errors[0].Message : (transfer.Success ? "校验未通过" : "未知错误"))}");
                 }
 
+                if (metadata is PersistentInstallMetadataSource)
+                    await RecoveryRecordAuthority.AuthorizeFileAsync(file.Destination, token).ConfigureAwait(false);
                 doneFiles++;
             }
         }

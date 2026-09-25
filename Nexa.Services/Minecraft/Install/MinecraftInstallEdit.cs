@@ -185,6 +185,7 @@ public sealed partial class MinecraftInstallService
                 _ = await InstallTaskJournal.CreateAsync(stage, command with { RootDirectory = original.RootDirectory }, token).ConfigureAwait(false);
             }
             ReadyExecution(execution, stage);
+            if (resumeStage is not null) await InstallRecoveredScratch.ResetAsync(stage, token).ConfigureAwait(false);
             if (editPlan.Kind == MinecraftInstallEditKind.Unchanged)
                 return new(instance, Path.Combine(original.RootDirectory, "versions", instance));
             if (editPlan.Kind == MinecraftInstallEditKind.ComponentsOnly)

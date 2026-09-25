@@ -45,6 +45,7 @@ public sealed partial class MinecraftInstallService
                 await InstallTaskJournal.CreateAsync(stage, command, token).ConfigureAwait(false);
             }
             ReadyExecution(execution, stage);
+            if (resumeStage is not null) await InstallRecoveredScratch.ResetAsync(stage, token).ConfigureAwait(false);
             await RunAsync(command with { RootDirectory = stage, ReuseRoot = root }, task, token,
                 new PersistentInstallMetadataSource(stage, _metadata), deferCompletion: true).ConfigureAwait(false);
             RecoveryBlobStore.CheckLinks(destination);

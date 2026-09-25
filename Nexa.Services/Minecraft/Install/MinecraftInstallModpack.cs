@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using Nexa.Services.Downloads;
 using Nexa.Services.Files;
+using Nexa.Services.Minecraft.Management;
 using Nexa.Services.Tasks;
 using Nexa.Xsr;
 
@@ -60,6 +61,7 @@ public sealed partial class MinecraftInstallService
             string destination = ForgeInstallService.Contained(root, "versions/" + pack.InstanceId);
             if (Path.Exists(destination)) throw new IOException("此整合包版本已经存在，未覆盖任何文件。");
             string buildRoot = journal.Game;
+            await InstallRecoveredScratch.ResetAsync(buildRoot, token).ConfigureAwait(false);
             Directory.CreateDirectory(buildRoot);
             var pinnedFiles = await journal.ReadFilesAsync(token).ConfigureAwait(false);
             var files = pinnedFiles?.ToList() ?? plan.Files.Where(file => command.IncludeOptional || !file.Optional).ToList();
@@ -107,6 +109,7 @@ public sealed partial class MinecraftInstallService
                     if (transfer.Success && await VerifyPackFileAsync(target, file, token).ConfigureAwait(false)) { verified = true; break; }
                 }
                 if (!verified) throw new IOException("整合包文件下载或校验失败：" + file.Path);
+                await RecoveryRecordAuthority.AuthorizeFileAsync(target, token).ConfigureAwait(false);
                 expandedBudget.Consume(new FileInfo(target).Length);
                 completed++;
                 task.Report("附加组件", file.Path, (double)completed / Math.Max(1, files.Count), completed, files.Count, 0);

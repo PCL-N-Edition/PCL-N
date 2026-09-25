@@ -284,6 +284,10 @@ internal static partial class Program
             }
             File.Delete(source);
             var metadata = new FakeMetadata(); int resumedDownloads = 0;
+            string packStage = Directory.GetDirectories(Path.Combine(root, ".nexa-pack-jobs")).Single();
+            string injected = Path.Combine(packStage, "game", "versions", preview.InstanceId, "mods", "attacker.jar");
+            Directory.CreateDirectory(Path.GetDirectoryName(injected)!);
+            File.WriteAllText(injected, "untrusted leftover");
             using var resumed = new InstallFixture(metadata, connectionFactory: url =>
             {
                 if (url.StartsWith("https://cdn.modrinth.com/", StringComparison.Ordinal)) Interlocked.Increment(ref resumedDownloads);
@@ -293,6 +297,7 @@ internal static partial class Program
             AssertTrue(result.IsSuccess, result.Error?.Message ?? "recovery failed");
             AssertEqual(0, metadata.VanillaReads);
             AssertEqual(1, resumedDownloads);
+            AssertFalse(File.Exists(Path.Combine(root, "versions", preview.InstanceId, "mods", "attacker.jar")));
             AssertEqual("preserved", await File.ReadAllTextAsync(Path.Combine(root, "versions", preview.InstanceId, "config", "test.txt")));
         }
         finally { Directory.Delete(temporary, true); }

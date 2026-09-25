@@ -18,11 +18,12 @@ internal static class InstallTaskJournal
     {
         Validate(stage, plan.Command.RootDirectory, plan);
         string path = Path.Combine(stage, DirectoryName, "status.json"); RecoveryBlobStore.CheckLinks(path);
-        if (!File.Exists(path)) return InstallTaskStatus.Pending;
+        if (!File.Exists(path)) { RecoveryRecordAuthority.VerifyAbsent(path); return InstallTaskStatus.Pending; }
         await using var input = File.OpenRead(path);
         if (input.Length > 4096) throw new InvalidDataException("安装任务状态记录过大。");
         byte[] bytes = new byte[(int)input.Length]; await input.ReadExactlyAsync(bytes, token).ConfigureAwait(false);
         if (input.ReadByte() != -1) throw new InvalidDataException("安装任务状态发生变化。");
+        RecoveryRecordAuthority.Verify(path, bytes);
         var state = JsonSerializer.Deserialize(bytes, InstallTaskJsonContext.Default.InstallTaskStatusRecord);
         if (state is null || state.Schema != 1 || state.Id != plan.Id || !Enum.IsDefined(state.Status) || state.Status == InstallTaskStatus.Pending)
             throw new InvalidDataException("安装任务状态身份无效。");
@@ -45,7 +46,8 @@ internal static class InstallTaskJournal
         {
             await using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true))
             { await output.WriteAsync(bytes, token).ConfigureAwait(false); await output.FlushAsync(token).ConfigureAwait(false); output.Flush(true); }
-            token.ThrowIfCancellationRequested(); RecoveryBlobStore.CheckLinks(target); File.Move(temporary, target, true);
+            await RecoveryRecordAuthority.AuthorizeAsync(target, bytes, token).ConfigureAwait(false);
+            RecoveryBlobStore.CheckLinks(target); File.Move(temporary, target, true);
         }
         finally { RecoveryBlobStore.CheckLinks(temporary); if (File.Exists(temporary)) File.Delete(temporary); }
     }
@@ -64,7 +66,8 @@ internal static class InstallTaskJournal
         {
             await using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true))
             { await output.WriteAsync(bytes, token).ConfigureAwait(false); await output.FlushAsync(token).ConfigureAwait(false); output.Flush(true); }
-            token.ThrowIfCancellationRequested(); RecoveryBlobStore.CheckLinks(target);
+            await RecoveryRecordAuthority.AuthorizeAsync(target, bytes, token).ConfigureAwait(false);
+            RecoveryBlobStore.CheckLinks(target);
             File.Move(temporary, target, overwrite: false);
         }
         finally { RecoveryBlobStore.CheckLinks(temporary); if (File.Exists(temporary)) File.Delete(temporary); }
@@ -80,6 +83,7 @@ internal static class InstallTaskJournal
         if (input.Length > MaxBytes) throw new InvalidDataException("安装任务记录过大。");
         byte[] bytes = new byte[(int)input.Length]; await input.ReadExactlyAsync(bytes, token).ConfigureAwait(false);
         if (input.ReadByte() != -1) throw new InvalidDataException("安装任务记录在读取期间发生变化。");
+        RecoveryRecordAuthority.Verify(path, bytes);
         var plan = JsonSerializer.Deserialize(bytes, InstallTaskJsonContext.Default.InstallTaskPlan) ?? throw new InvalidDataException("安装任务记录为空。");
         Validate(stage, root, plan);
         return plan;

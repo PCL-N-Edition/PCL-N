@@ -23,11 +23,17 @@ internal static partial class Program
             using (var other = new LoaderInstallerCache(root, request with { Build = "47.4.21" })) AssertFalse(await other.RestoreAsync(copy, default));
             string cached = Directory.GetFiles(Path.Combine(root, ".task", "loader"), "installer.jar", SearchOption.AllDirectories).Single();
             await File.WriteAllTextAsync(cached, "changed installer");
+            // Replacing the adjacent hash must not turn attacker bytes into a verified installer.
+            await File.WriteAllTextAsync(Path.Combine(Path.GetDirectoryName(cached)!, "sha256"),
+                Convert.ToHexString(System.Security.Cryptography.SHA256.HashData("changed installer"u8)));
             File.Delete(copy);
             using var corrupt = new LoaderInstallerCache(root, request);
             try { await corrupt.RestoreAsync(copy, default); throw new InvalidOperationException("Changed installer accepted."); }
             catch (InvalidDataException) { }
             AssertFalse(File.Exists(copy));
+            File.Delete(Path.Combine(Path.GetDirectoryName(cached)!, "sha256"));
+            try { await corrupt.RestoreAsync(copy, default); throw new InvalidOperationException("Deleted installer authority was re-adopted."); }
+            catch (InvalidDataException) { }
         }
         finally { Directory.Delete(root, true); }
     }

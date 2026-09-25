@@ -9,6 +9,7 @@ internal static partial class Program
         ("recovery restore command honors selection and rejects stale preview", RecoveryRestoreCommandHonorsSelectionAndRejectsStalePreview),
         ("recovery captures publish complete manifests only", RecoveryCaptureCommitsOnlyCompleteManifests),
         ("persistent addon downloads freeze merged sources and reject invalid identity", PersistentAddonDownloadsFreezeMergedSourcesAndRejectInvalidIdentity),
+        ("recovery rejects imported and transplanted authority", RecoveryRejectsImportedAndTransplantedAuthority),
         ("persistent install metadata freezes documents and rejects corruption", PersistentInstallMetadataFreezesDocumentsAndRejectsCorruption),
         ("persistent install metadata serializes publication and honors cancellation", PersistentInstallMetadataSerializesPublicationAndHonorsCancellation),
         ("install task terminal states do not resurrect", InstallTaskTerminalStatesDoNotResurrect),

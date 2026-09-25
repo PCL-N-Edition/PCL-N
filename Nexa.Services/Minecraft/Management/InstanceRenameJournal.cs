@@ -44,12 +44,14 @@ internal sealed class InstanceRenameJournal
         var plan = new RenamePlan(1, root, source, destination, transaction, marker, steps.ToArray(), settings.PrepareRenameSettings(source, destination));
         byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(plan, RenameJson.Default.RenamePlan);
         if (bytes.Length > 192 * 1024 * 1024) throw new InvalidDataException("改名记录过大。");
-        await WriteAsync(Path.Combine(transaction, "plan.json"), bytes, false, token).ConfigureAwait(false);
+        await RecoveryRecordAuthority.AuthorizeAsync(Path.Combine(transaction, "plan.json"), bytes, token).ConfigureAwait(false);
+        await WriteAsync(Path.Combine(transaction, "plan.json"), bytes, false, CancellationToken.None).ConfigureAwait(false);
         return new(plan, Convert.ToHexString(SHA256.HashData(bytes)));
     }
     internal static async Task<InstanceRenameJournal> OpenAsync(string root, string transaction, CancellationToken token)
     {
         byte[] bytes = await ReadAsync(Path.Combine(transaction, "plan.json"), 192 * 1024 * 1024, token).ConfigureAwait(false);
+        RecoveryRecordAuthority.Verify(Path.Combine(transaction, "plan.json"), bytes);
         var plan = JsonSerializer.Deserialize(bytes, RenameJson.Default.RenamePlan) ?? throw new InvalidDataException("改名记录为空。");
         string? parent = Path.GetDirectoryName(transaction);
         bool standalone = parent == Path.Combine(root, ".nexa-rename") && Guid.TryParseExact(Path.GetFileName(transaction), "N", out _);
@@ -165,14 +167,21 @@ internal sealed class InstanceRenameJournal
     private async Task<RenameProgress> ProgressAsync(CancellationToken token)
     {
         string path = Path.Combine(_plan.Directory, "progress.json");
-        if (!File.Exists(path)) return new(_hash, "applying", 0);
-        var value = JsonSerializer.Deserialize(await ReadAsync(path, 4096, token).ConfigureAwait(false), RenameJson.Default.RenameProgress);
+        if (!File.Exists(path)) { RecoveryRecordAuthority.VerifyAbsent(path); return new(_hash, "applying", 0); }
+        byte[] bytes = await ReadAsync(path, 4096, token).ConfigureAwait(false);
+        RecoveryRecordAuthority.Verify(path, bytes);
+        var value = JsonSerializer.Deserialize(bytes, RenameJson.Default.RenameProgress);
         if (value is null || value.Plan != _hash || value.Attempted < 0 || value.Attempted > _plan.Steps.Length + 1
             || value.Phase is not ("applying" or "rolling-back" or "rolled-back" or "committed")) throw new InvalidDataException("改名进度无效。");
         return value;
     }
-    private Task SaveProgressAsync(string phase, int count, CancellationToken token) => WriteAsync(Path.Combine(_plan.Directory, "progress.json"),
-        JsonSerializer.SerializeToUtf8Bytes(new RenameProgress(_hash, phase, count), RenameJson.Default.RenameProgress), true, token);
+    private async Task SaveProgressAsync(string phase, int count, CancellationToken token)
+    {
+        string path = Path.Combine(_plan.Directory, "progress.json");
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(new RenameProgress(_hash, phase, count), RenameJson.Default.RenameProgress);
+        await RecoveryRecordAuthority.AuthorizeAsync(path, bytes, token).ConfigureAwait(false);
+        await WriteAsync(path, bytes, true, CancellationToken.None).ConfigureAwait(false);
+    }
     private static async Task<byte[]> ReadAsync(string path, int limit, CancellationToken token)
     {
         RecoveryBlobStore.CheckLinks(path); await using var input = File.OpenRead(path);

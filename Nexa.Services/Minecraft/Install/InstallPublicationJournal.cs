@@ -28,6 +28,7 @@ internal sealed class InstallPublicationJournal
         string journal = Path.Combine(stage, ".publication");
         RecoveryBlobStore.CheckLinks(journal);
         if (Directory.Exists(journal)) throw new IOException("安装已有发布记录，必须先恢复该事务。");
+        RecoveryRecordAuthority.VerifyAbsent(Path.Combine(journal, "plan.json"));
         Directory.CreateDirectory(journal);
         var budget = new RecoveryByteBudget(RecoveryBlobStore.MaxTransactionBytes);
         Dictionary<string, InstallPublicationFile> files = new(MinecraftLibraryService.PathComparer);
@@ -224,7 +225,8 @@ internal sealed class InstallPublicationJournal
         RecoveryBlobStore.CheckLinks(path); await using var input = File.OpenRead(path);
         if (input.Length > limit) throw new InvalidDataException("安装记录过大。");
         byte[] bytes = new byte[(int)input.Length]; await input.ReadExactlyAsync(bytes, token).ConfigureAwait(false);
-        if (input.ReadByte() != -1) throw new InvalidDataException("安装记录发生变化。"); return bytes;
+        if (input.ReadByte() != -1) throw new InvalidDataException("安装记录发生变化。");
+        RecoveryRecordAuthority.Verify(path, bytes); return bytes;
     }
     private static async Task WriteAsync(string directory, string name, byte[] bytes, CancellationToken token)
     {
@@ -234,7 +236,8 @@ internal sealed class InstallPublicationJournal
         {
             await using (var output = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true))
             { await output.WriteAsync(bytes, token).ConfigureAwait(false); await output.FlushAsync(token).ConfigureAwait(false); output.Flush(true); }
-            token.ThrowIfCancellationRequested(); RecoveryBlobStore.CheckLinks(target); File.Move(temp, target, true);
+            await RecoveryRecordAuthority.AuthorizeAsync(target, bytes, token).ConfigureAwait(false);
+            RecoveryBlobStore.CheckLinks(target); File.Move(temp, target, true);
         }
         finally { RecoveryBlobStore.CheckLinks(temp); if (File.Exists(temp)) File.Delete(temp); }
     }
