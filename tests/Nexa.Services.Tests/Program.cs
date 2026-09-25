@@ -4,6 +4,7 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("recovery restore command honors selection and rejects stale preview", RecoveryRestoreCommandHonorsSelectionAndRejectsStalePreview),
         ("recovery captures publish complete manifests only", RecoveryCaptureCommitsOnlyCompleteManifests),
         ("persistent addon downloads freeze merged sources and reject invalid identity", PersistentAddonDownloadsFreezeMergedSourcesAndRejectInvalidIdentity),
         ("persistent install metadata freezes documents and rejects corruption", PersistentInstallMetadataFreezesDocumentsAndRejectsCorruption),

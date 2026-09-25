@@ -81,7 +81,9 @@ internal static partial class Program
             remediationHandlers: [remediationHandler]);
         FoundationRuntime runtime = FoundationRuntimeComposer.Compose(host, observer);
 
-        AssertEqual(11, runtime.Commands.Count);
+        AssertEqual(13, runtime.Commands.Count);
+        AssertTrue(runtime.Commands.TryResolve(Nexa.Services.Minecraft.Management.InstanceRecoveryContract.Restore, out _));
+        AssertTrue(runtime.Commands.TryResolve(Nexa.Services.Minecraft.Management.InstanceRecoveryContract.Recover, out _));
         AssertEqual(10, runtime.Queries.Count);
         AssertTrue(runtime.Queries.TryResolve(Nexa.Services.Minecraft.Management.InstanceRecoveryContract.Query, out var recoveryQuery));
         var recovery = await runtime.Queries.QueryAsync<Nexa.Services.Minecraft.Management.InstanceRecoveryQuery, Nexa.Services.Minecraft.Management.InstanceRecoveryReport>(

@@ -55,6 +55,11 @@ public static class FoundationRuntimeComposer
         IXsrDispatchObserver dispatchObserver = observer ?? NullDispatchObserver.Instance;
 
         XsrCommandRouterBuilder commands = new();
+        var recovery = new InstanceRecoveryService(host.SettingsPolicy, host.StateStore, host.Logging);
+        commands.Register<InstanceRecoveryRestoreCommand>(InstanceRecoveryContract.Restore,
+            async (command, token) => await recovery.RestoreAsync(command, token).ConfigureAwait(false));
+        commands.Register<InstanceRecoveryResumeCommand>(InstanceRecoveryContract.Recover,
+            async (command, token) => await recovery.RecoverAsync(command, token).ConfigureAwait(false));
         commands.Register<InstanceModEnabledCommand>(InstanceManagementContract.SetModEnabled,
             async (command, token) => await InstanceContentService.SetModEnabledAsync(command, host.StateStore, token).ConfigureAwait(false));
         commands.Register(
@@ -99,7 +104,6 @@ public static class FoundationRuntimeComposer
         XsrCommandRouter commandRouter = commands.Build(dispatchObserver, timeProvider);
 
         XsrQueryRouterBuilder queries = new();
-        var recovery = new InstanceRecoveryService(host.SettingsPolicy, host.StateStore, host.Logging);
         queries.Register<InstanceManagementQuery, InstanceManagementSnapshot>(InstanceManagementContract.Query,
             async (query, token) =>
             {

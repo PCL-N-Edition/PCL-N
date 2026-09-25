@@ -131,7 +131,7 @@ internal static class RecoveryFileTransaction
 
     private static string BackupPath(RecoveryPreparedRestore prepared, RecoveryBlob blob) => Path.Combine(prepared.Directory, blob.Sha256 + ".before");
 
-    private static async Task<RecoveryBlob?> ObserveAsync(string path, RecoveryByteBudget budget, CancellationToken token)
+    internal static async Task<RecoveryBlob?> ObserveAsync(string path, RecoveryByteBudget budget, CancellationToken token)
     {
         RecoveryBlobStore.CheckLinks(path);
         if (Directory.Exists(path)) throw new IOException("恢复文件被同名目录替代。");

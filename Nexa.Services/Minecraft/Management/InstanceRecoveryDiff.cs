@@ -9,17 +9,25 @@ namespace Nexa.Services.Minecraft.Management;
 
 public enum InstanceRecoveryChangeKind { Added, Removed, Modified }
 public sealed record InstanceRecoveryQuery(string InstanceDirectory);
-public sealed record InstanceRecoveryChange(InstanceRecoveryChangeKind Kind, string Category, string Path, string? SettingKey = null);
+public sealed record InstanceRecoveryChange(InstanceRecoveryChangeKind Kind, string Category, string Path, string? SettingKey = null)
+{
+    public string? Area { get; init; }
+}
 public sealed record InstanceRecoveryReport(string InstanceDirectory, Guid? BaselineRevision, DateTimeOffset? CapturedAt,
     IReadOnlyList<InstanceRecoveryChange> Changes, string Fingerprint, string? UnavailableReason = null);
 public static class InstanceRecoveryContract
 {
     public static readonly XsrSemanticId Query = XsrSemanticId.Parse("minecraft.instance.recovery.query");
+    public static readonly XsrSemanticId Restore = XsrSemanticId.Parse("minecraft.instance.recovery.restore");
+    public static readonly XsrSemanticId Recover = XsrSemanticId.Parse("minecraft.instance.recovery.recover");
 }
 
 public sealed partial class InstanceRecoveryService
 {
     public Task<XsrResult<InstanceRecoveryReport>> ReadAsync(InstanceRecoveryQuery query, CancellationToken token = default) =>
+        ReadInternalAsync(query, false, token);
+
+    private Task<XsrResult<InstanceRecoveryReport>> ReadInternalAsync(InstanceRecoveryQuery query, bool exclusive, CancellationToken token) =>
         Task.Run(async () =>
         {
             try
@@ -29,9 +37,9 @@ public sealed partial class InstanceRecoveryService
                 var versions = Directory.GetParent(instance);
                 if (versions?.Name != "versions" || versions.Parent is null) throw new InvalidDataException("实例目录无效。");
                 string root = versions.Parent.FullName;
-                using var capture = InstanceRecoveryOperationGate.TryCapture(root);
-                if (capture is null) return XsrResult.Failure<InstanceRecoveryReport>(MinecraftErrors.InvalidRequest("版本文件正在更改，请稍后重试。"));
-                using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(token, capture.Token);
+                using var capture = exclusive ? null : InstanceRecoveryOperationGate.TryCapture(root);
+                if (!exclusive && capture is null) return XsrResult.Failure<InstanceRecoveryReport>(MinecraftErrors.InvalidRequest("版本文件正在更改，请稍后重试。"));
+                using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(token, capture?.Token ?? token);
                 cancellation.CancelAfter(TimeSpan.FromMinutes(3));
                 var stop = cancellation.Token;
                 RecoverySnapshot? baseline;
@@ -123,6 +131,6 @@ public sealed partial class InstanceRecoveryService
             _ when path.StartsWith("options", StringComparison.OrdinalIgnoreCase) => "游戏选项",
             _ => "版本文件"
         };
-        return new(kind, category, path);
+        return new(kind, category, path) { Area = source.Area };
     }
 }

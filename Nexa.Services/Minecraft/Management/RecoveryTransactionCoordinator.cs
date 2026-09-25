@@ -10,11 +10,11 @@ internal static class RecoveryTransactionCoordinator
 {
     internal static async Task ExecuteAsync(RecoveryPreparedRestore prepared, IReadOnlyList<RecoveryFileEdit> files,
         RecoverySettingsPlan plan, SettingsPolicyService settings, Func<CancellationToken, Task> validate,
-        CancellationToken token = default)
+        bool restoreLeaseHeld = false, CancellationToken token = default)
     {
         RecoveryFileTransaction.Validate(prepared, new(prepared.Snapshot.InstanceDirectory, prepared.Snapshot.GameDirectory), files);
         CheckScope(prepared, plan);
-        using var exclusive = await InstanceRecoveryOperationGate.EnterRestoreAsync(Root(prepared), token).ConfigureAwait(false);
+        using var exclusive = restoreLeaseHeld ? null : await InstanceRecoveryOperationGate.EnterRestoreAsync(Root(prepared), token).ConfigureAwait(false);
         await validate(token).ConfigureAwait(false);
         string hash = await PrepareAsync(prepared, plan, token).ConfigureAwait(false);
         bool settingsAttempted = false;
@@ -39,9 +39,13 @@ internal static class RecoveryTransactionCoordinator
     }
 
     internal static async Task RecoverAsync(RecoveryPreparedRestore prepared, SettingsPolicyService settings,
-        Func<CancellationToken, Task> validate, CancellationToken token = default)
+        Func<CancellationToken, Task> validate, CancellationToken token = default) =>
+        await RecoverUnderLeaseAsync(prepared, settings, validate, false, token).ConfigureAwait(false);
+
+    internal static async Task RecoverUnderLeaseAsync(RecoveryPreparedRestore prepared, SettingsPolicyService settings,
+        Func<CancellationToken, Task> validate, bool restoreLeaseHeld, CancellationToken token = default)
     {
-        using var exclusive = await InstanceRecoveryOperationGate.EnterRestoreAsync(Root(prepared), token).ConfigureAwait(false);
+        using var exclusive = restoreLeaseHeld ? null : await InstanceRecoveryOperationGate.EnterRestoreAsync(Root(prepared), token).ConfigureAwait(false);
         await validate(token).ConfigureAwait(false);
         byte[] bytes = await RecoveryFileTransaction.ReadRecordAsync(Path.Combine(prepared.Directory, "settings-plan.json"), 4 * 1024 * 1024, token).ConfigureAwait(false);
         string hash = Convert.ToHexString(SHA256.HashData(bytes));

@@ -70,9 +70,10 @@ internal static partial class Program
             marker["phase"] = "settings-applying"; marker["settingsAttempted"] = true;
             File.WriteAllText(markerPath, marker.ToJsonString());
             AssertTrue(settings.ApplyRecoverySettingsPlan(plan, false).IsSuccess);
-            var reopened = await RecoveryRestorePreparation.ReadAsync(instance, instance, prepared.TransactionId);
-            await RecoveryTransactionCoordinator.RecoverAsync(reopened, settings, _ => Task.CompletedTask);
-            await RecoveryTransactionCoordinator.RecoverAsync(reopened, settings, _ => Task.CompletedTask);
+            var service = new InstanceRecoveryService(settings, new Nexa.Xsr.State.XsrStateStoreBuilder().Build());
+            AssertTrue((await service.RecoverAsync(new([root]))).IsSuccess);
+            AssertTrue((await service.RecoverAsync(new([root]))).IsSuccess);
+            AssertFalse(Directory.Exists(prepared.Directory));
             AssertEqual("current", File.ReadAllText(file));
             AssertEqual("current", Effective(settings, "game.arguments", instance).Value.Value);
         }

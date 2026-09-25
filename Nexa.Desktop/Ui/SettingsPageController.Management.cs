@@ -21,6 +21,7 @@ internal sealed partial class SettingsPageController
     private InstanceContentSnapshot? _contentSnapshot;
     private int _contentWindowStart = -1, _contentWindowCount;
     internal Action<string>? OpenManagementDirectory { get; set; }
+    internal Action? ManagementChanged { get; set; }
     private IReadOnlyList<SettingsCatalogPage> ManagementPages => _management is { } snapshot
         ? snapshot.Pages.Select(page => new SettingsCatalogPage(page.Id, page.Label)).ToArray()
         : [new("overview", "总览"), new("game", "游戏设置"), new("recovery", "快照与存储")];
@@ -48,7 +49,8 @@ internal sealed partial class SettingsPageController
             if (_managementWriteInstance == _instance)
             {
                 if (!writing.IsCompletedSuccessfully || !writing.Result.IsSuccess)
-                    _feedback.Error(writing.IsCompletedSuccessfully ? writing.Result.Error?.Message ?? "模组状态未保存。" : "模组状态未保存。");
+                    _feedback.Error(writing.IsCompletedSuccessfully ? writing.Result.Error?.Message ?? "版本更改未完成。" : "版本更改未完成。");
+                else ManagementChanged?.Invoke();
                 CancelManagementRead();
             }
         }

@@ -308,6 +308,11 @@ internal static class Program
             () => ((MinecraftLibrarySnapshot?)host.StateStore.ReadAppliedValue(host.StateStore.Resolve(MinecraftLibraryService.StateKey)))?.SelectedInstance?.DirectoryPath);
         launchPage.VersionSettingsPage = versionSettings.Page;
         versionSettings.OpenManagementDirectory = platformActions.OpenDirectory;
+        versionSettings.ManagementChanged = () =>
+        {
+            if (library.Commands.TryResolve(MinecraftLibraryRoutes.Refresh, out var refresh))
+                _ = library.Commands.Dispatch(refresh, new MinecraftLibraryRefreshCommand());
+        };
         // The launch page projects launch-progress cells into overlay display strings, so the
         // composition root adds its observer to the shared store fan-out.
         using IDisposable launchStateSubscription = stateObservation.Subscribe(launchPage.StateObserver);
@@ -349,7 +354,7 @@ internal static class Program
         var recoveryRoots = host.StateStore.Read<MinecraftLibrarySnapshot>(host.StateStore.Resolve(MinecraftLibraryService.StateKey)).Value?.Directories
             .Select(directory => directory.Path).ToArray() ?? [minecraftRootDirectory];
         using var installRecovery = new DesktopInstallRecoverySession(installRun.Commands, recoveryRoots,
-            message => host.Logging.Warn("Install", message), minecraft.Commands);
+            message => host.Logging.Warn("Install", message), minecraft.Commands, runtime.Commands);
         var installExit = new DesktopInstallExitCoordinator(host.StateStore, installRun.Commands, feedback, platformActions.RequestClose, minecraft.Commands);
         platformActions.CloseRequested = installExit.CanClose;
         setStage("gui_lifetime");

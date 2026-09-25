@@ -227,12 +227,15 @@ internal sealed class DesktopFeedbackService : IDisposable
     }
 
     // Async results are bound to a particular modal lifetime, never just a reusable key.
-    public bool TryUpdateMessageDialog(Guid dialogId, string message, string? alternateLabel = null, Action? alternate = null)
+    public bool TryUpdateMessageDialog(Guid dialogId, string message, string? alternateLabel = null, Action? alternate = null,
+        string? actionLabel = null, Action? action = null)
     {
         lock (_gate)
         {
             if (_disposed || _dialog?.Id != dialogId) return false;
             _dialog = _dialog with { Message = message, AlternateLabel = alternateLabel, Alternate = alternate };
+            if (actionLabel is not null && action is not null)
+                _dialog = _dialog with { AcceptLabel = actionLabel, CancelLabel = "关闭", Resolve = accepted => { if (accepted) action(); } };
         }
         RaiseChanged();
         return true;

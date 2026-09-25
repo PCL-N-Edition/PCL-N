@@ -47,6 +47,12 @@ internal static partial class Program
         feedback.ResolveDialog(replacement, true);
         first.Alternate!();
         AssertTrue(feedback.Snapshot().Dialog is null);
+        bool restoreRequested = false;
+        AssertTrue(feedback.TryShowMessageDialog("crash", "游戏异常退出", "原因", "知道了", out var actionable));
+        new CrashChangesPresentation(feedback, actionable, "原始错误", report, () => restoreRequested = true).Show();
+        AssertEqual("回滚更改…", feedback.Snapshot().Dialog!.AcceptLabel);
+        AssertTrue(feedback.ResolveDialog(actionable, true));
+        AssertTrue(restoreRequested);
     }
 
     private static void CrashChangesQueryUsesFailedProcessInstance()

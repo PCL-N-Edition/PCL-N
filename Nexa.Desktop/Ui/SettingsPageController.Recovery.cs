@@ -47,6 +47,8 @@ internal sealed partial class SettingsPageController
             int changePages = Math.Max(1, (comparison.Changes.Count + pageSize - 1) / pageSize);
             _recoveryChangesPage = Math.Clamp(_recoveryChangesPage, 0, changePages - 1);
             Text(_sections, comparison.Changes.Count == 0 ? "恢复范围内没有更改。" : $"{comparison.Changes.Count} 项更改", 13, Muted, 26);
+            if (comparison.Changes.Count > 0)
+                ManagementButton(_sections, "回滚全部更改", () => RestoreChanges(comparison, comparison.Changes), 140);
             foreach (var item in comparison.Changes.Skip(_recoveryChangesPage * pageSize).Take(pageSize))
             {
                 string kind = item.Kind switch { InstanceRecoveryChangeKind.Added => "新增", InstanceRecoveryChangeKind.Removed => "删除", _ => "修改" };
@@ -54,11 +56,26 @@ internal sealed partial class SettingsPageController
                 Text(row, kind + " · " + item.Category, 12, Muted, 22);
                 var path = Text(row, new string(item.Path.Select(c => char.IsControl(c) ? ' ' : c).ToArray()), 14, Ink, 42);
                 _shell.Tree.GetComponent<XsrUiVisualStyle>(path)!.WrapText = true;
+                ManagementButton(row, "回滚此项", () => RestoreChanges(comparison, [item]), 100);
             }
             if (changePages > 1)
                 ManagementButton(_sections, $"更改 {_recoveryChangesPage + 1}/{changePages} · 下一页", () =>
                 { _recoveryChangesPage = (_recoveryChangesPage + 1) % changePages; BuildSections(true); UpdateEditors(); }, 180);
         }
+    }
+
+    private void RestoreChanges(InstanceRecoveryReport report, IReadOnlyList<InstanceRecoveryChange> changes)
+    {
+        if (_managementWrite is not null || report.BaselineRevision is not { } revision
+            || _instance != report.InstanceDirectory || !_commands.TryResolve(InstanceRecoveryContract.Restore, out var route)) return;
+        _feedback.ShowDialog("recovery.confirm", "回滚所选更改", $"将恢复 {changes.Count} 项更改。存档、截图和日志不受影响。", "回滚", "取消", accepted =>
+        {
+            if (!accepted || _managementWrite is not null || _instance != report.InstanceDirectory) return;
+            _managementWriteInstance = report.InstanceDirectory;
+            _managementWrite = _commands.Dispatch(route, new InstanceRecoveryRestoreCommand(report.InstanceDirectory, revision,
+                report.Fingerprint, changes.ToArray())).Completion;
+            WakeOnPlatformCompletion(_managementWrite);
+        });
     }
 
     private static string RecoverySize(long bytes) => bytes >= 1024L * 1024 * 1024 ? $"{bytes / (1024d * 1024 * 1024):0.##} GiB"

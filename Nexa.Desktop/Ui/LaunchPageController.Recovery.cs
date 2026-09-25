@@ -52,7 +52,8 @@ internal sealed partial class LaunchPageController
                 _feedback.TryUpdateMessageDialog(dialogId, reason + "\n\n更改比较未完成。" + result.Error?.Message);
                 return;
             }
-            new CrashChangesPresentation(_feedback, dialogId, reason, result.Value!).Show();
+            new CrashChangesPresentation(_feedback, dialogId, reason, result.Value!,
+                () => ShowCrashRecoveryChoices(failure, reason, result.Value!)).Show();
         }
         catch (OperationCanceledException) { }
         catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)
@@ -60,12 +61,47 @@ internal sealed partial class LaunchPageController
             _feedback.TryUpdateMessageDialog(dialogId, reason + "\n\n暂时无法读取更改清单。");
         }
     }
+
+    private void ShowCrashRecoveryChoices(MinecraftProcessFailure failure, string reason, InstanceRecoveryReport report, int index = -1)
+    {
+        if (_disposed || report.BaselineRevision is not { } revision || report.Changes.Count == 0
+            || !_foundationCommands.TryResolve(InstanceRecoveryContract.Restore, out var route)) return;
+        IReadOnlyList<InstanceRecoveryChange> changes = index < 0 ? report.Changes : [report.Changes[index]];
+        string description = index < 0 ? $"恢复全部 {changes.Count} 项更改。" :
+            $"第 {index + 1}/{report.Changes.Count} 项：{changes[0].Category} · {changes[0].Path}";
+        _feedback.ShowDialog("recovery.crash.choose", "恢复上次成功运行的状态", reason + "\n\n" + description + "\n存档、截图和日志不受影响。",
+            index < 0 ? "回滚全部" : "回滚此项", "取消", accepted =>
+            {
+                if (accepted) _ = RestoreCrashChangesAsync(failure, report, revision, changes, route);
+            }, index < 0 ? "逐项选择" : "下一项", () =>
+            {
+                // A new dialog lifetime is needed: same-key updates intentionally retain callbacks.
+                if (_feedback.Snapshot().Dialog is { } dialog) _feedback.DismissDialog(dialog.Id);
+                ShowCrashRecoveryChoices(failure, reason, report, (index + 1) % report.Changes.Count);
+            });
+    }
+
+    private async Task RestoreCrashChangesAsync(MinecraftProcessFailure failure, InstanceRecoveryReport report, Guid revision,
+        IReadOnlyList<InstanceRecoveryChange> changes, Nexa.Xsr.XsrCommandId route)
+    {
+        var result = await _foundationCommands.Dispatch(route, new InstanceRecoveryRestoreCommand(report.InstanceDirectory,
+            revision, report.Fingerprint, changes.ToArray()), cancellationToken: _lifetimeCancellation.Token).Completion.ConfigureAwait(false);
+        if (_disposed) return;
+        if (result.IsSuccess)
+        {
+            _feedback.Info("已恢复所选更改。");
+            if (_libraryCommands.TryResolve(Nexa.Services.Minecraft.MinecraftLibraryRoutes.Refresh, out var refresh))
+                _ = _libraryCommands.Dispatch(refresh, new Nexa.Services.Minecraft.MinecraftLibraryRefreshCommand());
+        }
+        else _feedback.Error(result.Error?.Message ?? "恢复未完成，快照与原错误记录已保留。");
+        TryShowCrashDialog(failure);
+    }
 }
 
 // Bounded pages keep wrapping/layout work independent of the size of a modpack.
 // Every change remains reachable, without creating thousands of UI entities.
 internal sealed class CrashChangesPresentation(DesktopFeedbackService feedback, Guid dialogId,
-    string reason, InstanceRecoveryReport report)
+    string reason, InstanceRecoveryReport report, Action? restore = null)
 {
     internal const int PageSize = 12;
     private int _page;
@@ -85,7 +121,7 @@ internal sealed class CrashChangesPresentation(DesktopFeedbackService feedback, 
         string body = reason + "\n\n" + heading + "\n" + string.Join("\n\n", rows);
         feedback.TryUpdateMessageDialog(dialogId, body, pages > 1 ? (_page + 1 == pages ? "回到首批" : "下一批更改") : null,
             pages > 1 ? () => { _page = (_page + 1) % pages; Show(); }
-        : null);
+        : null, count > 0 && restore is not null ? "回滚更改…" : null, count > 0 ? restore : null);
     }
 
     private static string Kind(InstanceRecoveryChangeKind kind) => kind switch
