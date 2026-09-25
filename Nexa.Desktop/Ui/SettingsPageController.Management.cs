@@ -23,7 +23,7 @@ internal sealed partial class SettingsPageController
     internal Action<string>? OpenManagementDirectory { get; set; }
     private IReadOnlyList<SettingsCatalogPage> ManagementPages => _management is { } snapshot
         ? snapshot.Pages.Select(page => new SettingsCatalogPage(page.Id, page.Label)).ToArray()
-        : [new("overview", "总览"), new("game", "游戏设置")];
+        : [new("overview", "总览"), new("game", "游戏设置"), new("recovery", "快照与存储")];
 
     private void CancelManagementRead()
     {
@@ -35,7 +35,7 @@ internal sealed partial class SettingsPageController
     {
         if (_instanceDirectory is null) return;
         CancelManagementRead(); _management = null; _managementError = null;
-        _selected = "overview"; _scrollPositions.Clear();
+        _selected = "overview"; _scrollPositions.Clear(); _recoverySnapshotPage = 0; _recoveryChangesPage = 0;
         if (_catalog is not null) RebuildManagementNavigation();
     }
 
@@ -56,7 +56,7 @@ internal sealed partial class SettingsPageController
         {
             _managementStop = new();
             _managementRead = _queries.QueryAsync<InstanceManagementQuery, InstanceManagementSnapshot>(route,
-                new(_instance), cancellationToken: _managementStop.Token).AsTask();
+                new(_instance) { IncludeRecoveryStorage = _selected == "recovery" }, cancellationToken: _managementStop.Token).AsTask();
             WakeOnPlatformCompletion(_managementRead);
         }
         if (_managementRead is not { IsCompleted: true } reading) return;
@@ -141,6 +141,7 @@ internal sealed partial class SettingsPageController
             if (snapshot.Description.Length > 0) ManagementFact("描述", snapshot.Description);
             if (OpenManagementDirectory is not null) ManagementButton(_sections, "打开版本文件夹", () => OpenContentDirectory(snapshot.InstanceDirectory), 128);
         }
+        else if (_selected == "recovery") BuildRecoveryStorage(snapshot);
         else if (_selected == "modpack")
         {
             ManagementFact("整合包版本", string.IsNullOrEmpty(snapshot.ModpackVersion) ? "未记录" : snapshot.ModpackVersion);

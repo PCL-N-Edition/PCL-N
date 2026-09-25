@@ -35,6 +35,23 @@ internal static partial class Program
                 return scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "SettingsNav.mods");
             }, TimeSpan.FromSeconds(10)));
             AssertEqual("overview", settings.SelectedSection);
+            Emit(fixture.Intents, "ui.settings.section", FindByKey(fixture.Shell, scene, "SettingsNav.recovery").Entity);
+            AssertTrue(SpinWait.SpinUntil(() =>
+            {
+                scene = fixture.Shell.Render(new(1000, 650));
+                return scene.Nodes.Any(node => node.Text == "版本文件");
+            }, TimeSpan.FromSeconds(10)));
+            AssertEqual("recovery", settings.SelectedSection);
+            AssertTrue(scene.Nodes.Any(node => node.Text == "保留历史快照"));
+            AssertTrue(scene.Nodes.Any(node => node.Text == "快照存储"));
+            string? HistorySetting(string? scope) => fixture.Foundation.Host.SettingsPolicy.Read(new(scope)).Value!.Values.Single(item => item.Key == "recovery.keep-history").Value.Value;
+            AssertEqual("false", HistorySetting(instance));
+            Emit(fixture.Intents, "ui.settings.choice", FindByKey(fixture.Shell, scene, "SettingsOption.recovery.keep-history.true").Entity);
+            scene = fixture.Shell.Render(new(1000, 650));
+            AssertTrue(SpinWait.SpinUntil(() => HistorySetting(instance) == "true", TimeSpan.FromSeconds(5)));
+            AssertEqual("false", HistorySetting(null));
+            scene = fixture.Shell.Render(new(1000, 650));
+
             AssertFalse(scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) is "SettingsNav.java" or "SettingsNav.components"));
             AssertFalse(scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "SettingsNav.shaderpacks"));
             Emit(fixture.Intents, "ui.settings.section", FindByKey(fixture.Shell, scene, "SettingsNav.mods").Entity);

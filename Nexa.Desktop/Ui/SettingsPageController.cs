@@ -180,6 +180,7 @@ internal sealed partial class SettingsPageController : IDisposable
         _scrollPositions[_selected] = _shell.Tree.GetComponent<XsrUiScroll>(_sections)!.OffsetY;
 
         _selected = page; _sections = _pages[page];
+        if (_instanceDirectory is not null && page == "recovery" && _management?.RecoveryStorage is null) CancelManagementRead();
         BuildSections(navigating: true); UpdateNavigation(); UpdateEditors();
     }
 
