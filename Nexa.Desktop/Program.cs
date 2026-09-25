@@ -321,9 +321,17 @@ internal static class Program
         using CloudflareApiClient? cloudflare = OpenCloudflareClient(host.Logging);
         using var telemetrySession = cloudflare is null ? null : new Nexa.Services.Telemetry.LauncherTelemetrySession(
             host.Telemetry, host.Settings, new Nexa.Services.Telemetry.CloudflareTelemetryTransport(cloudflare.Client), host.Logging, ResolveInformationalVersion());
+        using IDisposable? telemetrySubscription = telemetrySession is null ? null : stateObservation.Subscribe(telemetrySession);
+        if (telemetrySession is not null) host.Logging.AddSink(telemetrySession);
         setStage("gui_lifetime");
         host.Logging.Info("Launcher", "Entering Avalonia GUI lifetime.");
-        int exitCode = AvaloniaUiShellHost.Run(shell, args, platformActions);
+        int exitCode;
+        try { exitCode = AvaloniaUiShellHost.Run(shell, args, platformActions); }
+        catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)
+        {
+            telemetrySession?.Record("app.failure", "failed");
+            throw;
+        }
         setStage("shutdown");
         host.Logging.Info("Launcher", $"GUI lifetime completed exit_code={exitCode}; releasing session resources.");
         session.Enter(XsrLifecyclePhase.Stopping);
