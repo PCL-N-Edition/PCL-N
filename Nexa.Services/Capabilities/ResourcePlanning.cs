@@ -148,9 +148,12 @@ public sealed class ResourceEstimator(ResourceEstimatorProfile? profile = null, 
 
     public ResourceEstimateSnapshot Estimate(MachineCapabilitySnapshot snapshot) => Estimate(snapshot.Values);
 
-    internal ResourceEstimateSnapshot Estimate(IEnumerable<ICapability> values)
+    public ResourceEstimateSnapshot Estimate(MachineCapabilitySnapshot snapshot, MachineCapabilityQuery query)
+        => Estimate(snapshot.Values, query.InstanceDirectory);
+
+    internal ResourceEstimateSnapshot Estimate(IEnumerable<ICapability> values, string? instanceDirectory = null)
     {
-        ResourceEstimateComputation computation = ResourceEstimateModel.Calculate(values, _profile, _history);
+        ResourceEstimateComputation computation = ResourceEstimateModel.Calculate(values, _profile, _history, instanceDirectory);
         string[] inputs = values.Where(static value => value.Availability == CapabilityAvailability.Available)
             .Select(static value => value.Id).Where(static id => id.StartsWith("minecraft.", StringComparison.Ordinal)
                 || id.StartsWith("loader.", StringComparison.Ordinal)
@@ -175,8 +178,12 @@ public sealed class ResourceEstimatorProjection(ResourceEstimatorProfile? profil
     private readonly ResourceObservationHistory _history = history ?? new ResourceObservationHistory();
 
     public IReadOnlyList<ICapability> Project(IReadOnlyDictionary<string, ICapability> values, DateTimeOffset timestamp)
+        => Project(values, timestamp, new MachineCapabilityQuery());
+
+    public IReadOnlyList<ICapability> Project(IReadOnlyDictionary<string, ICapability> values, DateTimeOffset timestamp,
+        MachineCapabilityQuery query)
     {
-        ResourceEstimateComputation estimate = ResourceEstimateModel.Calculate(values.Values, _profile, _history);
+        ResourceEstimateComputation estimate = ResourceEstimateModel.Calculate(values.Values, _profile, _history, query.InstanceDirectory);
         const string source = "Nexa 资源估算模型 resource-1";
         List<ICapability> projected =
         [

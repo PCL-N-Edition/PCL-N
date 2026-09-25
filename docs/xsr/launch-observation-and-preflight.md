@@ -8,6 +8,12 @@ total including disabled files. A known enabled count of zero is authoritative. 
 without an available enabled count retain the total-count fallback. File counts remain coarse
 priors, not evidence of mod costs or equivalence between different mod combinations.
 
+Local observation history must be scoped by the normalized full instance directory. A query
+without that directory cannot calibrate from process-wide history, even if loader or mod count
+looks similar. Different roots with the same instance name remain different scopes. This is a
+necessary boundary, not proof of configuration equivalence: mod/settings fingerprints and workload
+matching remain required for a reliable learned model.
+
 ## Observation contract
 
 Services own per-launch resource observation. Random session identity links samples only

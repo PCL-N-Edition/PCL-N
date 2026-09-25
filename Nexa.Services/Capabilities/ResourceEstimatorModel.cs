@@ -51,7 +51,7 @@ internal sealed record ResourceEstimateComputation(
 internal static class ResourceEstimateModel
 {
     public static ResourceEstimateComputation Calculate(IEnumerable<ICapability> source,
-        ResourceEstimatorProfile profile, ResourceObservationHistory history)
+        ResourceEstimatorProfile profile, ResourceObservationHistory history, string? instanceDirectory = null)
     {
         Dictionary<string, ICapability> values = source.ToDictionary(static value => value.Id, StringComparer.Ordinal);
         // The inventory total includes disabled files, which do not participate in the next launch.
@@ -114,13 +114,16 @@ internal static class ResourceEstimateModel
         long commitLaunch = heapLaunch + nativeLaunch + resourcePeak + commitReserve;
         long commitRuntime = heapRuntime + nativeRuntime + resourceHeap + commitReserve;
 
-        IReadOnlyList<ResourceObservationSample> samples = history.Snapshot();
-        double loaderSimilarity = samples.Count == 0 ? 0 : samples.Count(item => string.Equals(item.Loader, loader, StringComparison.OrdinalIgnoreCase)) / (double)samples.Count;
-        double modSimilarity = samples.Count == 0 ? 0 : samples.Average(item => Similarity(modCount, item.ModCount));
-        double resourceSimilarity = samples.Count == 0 ? 0 : samples.Average(item => Similarity(resourceHeap, item.ResourceWeight));
-        double javaSimilarity = samples.Count == 0 ? 0 : samples.Average(item => item.JavaMajor == ReadLong(values, "java.runtime.major") ? 1d : 0.5d);
+        string? scope = NormalizeInstance(instanceDirectory);
+        ResourceObservationSample[] samples = scope is null ? [] : history.Snapshot()
+            .Where(item => string.Equals(NormalizeInstance(item.InstanceKey), scope,
+                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)).ToArray();
+        double loaderSimilarity = samples.Length == 0 ? 0 : samples.Count(item => string.Equals(item.Loader, loader, StringComparison.OrdinalIgnoreCase)) / (double)samples.Length;
+        double modSimilarity = samples.Length == 0 ? 0 : samples.Average(item => Similarity(modCount, item.ModCount));
+        double resourceSimilarity = samples.Length == 0 ? 0 : samples.Average(item => Similarity(resourceHeap, item.ResourceWeight));
+        double javaSimilarity = samples.Length == 0 ? 0 : samples.Average(item => item.JavaMajor == ReadLong(values, "java.runtime.major") ? 1d : 0.5d);
         double totalSimilarity = (loaderSimilarity + modSimilarity + resourceSimilarity + javaSimilarity) / 4;
-        double historyWeight = Math.Clamp(samples.Count / 12d * totalSimilarity, 0, 0.75);
+        double historyWeight = Math.Clamp(samples.Length / 12d * totalSimilarity, 0, 0.75);
         long heapP95 = Percentile(samples.Select(static item => item.HeapPeakMiB), profile.QuantileTarget);
         long nativeP95 = Percentile(samples.Select(static item => item.NativePeakMiB), profile.QuantileTarget);
         long physicalP95 = Percentile(samples.Select(static item => item.PhysicalPeakMiB), profile.QuantileTarget);
@@ -137,7 +140,7 @@ internal static class ResourceEstimateModel
         bool modifiedCore = ReadBool(values, "minecraft.core.modified");
         bool unreadableSettings = !Available(values, "minecraft.settings.readable") || !ReadBool(values, "minecraft.settings.readable");
         bool missingHardware = !Available(values, "memory.physical.available") || !Available(values, "gpu.memory.dedicated.available_budget");
-        bool insufficientHistory = samples.Count < 5;
+        bool insufficientHistory = samples.Length < 5;
         int penalties = new[] { unknownMods, modifiedCore, unreadableSettings, missingHardware, insufficientHistory }.Count(static value => value);
         double confidenceScore = Math.Clamp(1 - penalties * 0.16 + historyWeight * 0.3, 0.1, 1);
         CapabilityConfidence confidence = confidenceScore >= 0.8 ? CapabilityConfidence.High
@@ -200,7 +203,7 @@ internal static class ResourceEstimateModel
             ["estimate.commit.reserve"] = commitReserve,
             ["estimate.commit.launch_margin"] = Math.Max(0, BytesToMiB(ReadLong(values, "memory.commit.available")) - commitLaunch),
             ["estimate.commit.runtime_margin"] = Math.Max(0, BytesToMiB(ReadLong(values, "memory.commit.available")) - commitRuntime),
-            ["estimate.history.sample_count"] = samples.Count,
+            ["estimate.history.sample_count"] = samples.Length,
             ["estimate.history.heap.p95"] = heapP95,
             ["estimate.history.native.p95"] = nativeP95,
             ["estimate.history.physical.p95"] = physicalP95,
@@ -219,7 +222,7 @@ internal static class ResourceEstimateModel
             ["estimate.confidence.reason.unreadable_settings"] = unreadableSettings,
             ["estimate.confidence.reason.missing_hardware_metric"] = missingHardware,
             ["estimate.confidence.reason.insufficient_history"] = insufficientHistory,
-            ["estimate.history.available"] = samples.Count > 0,
+            ["estimate.history.available"] = samples.Length > 0,
         };
         Dictionary<string, double> scores = new(StringComparer.Ordinal)
         {
@@ -233,6 +236,13 @@ internal static class ResourceEstimateModel
         return new(ResourceEstimateStatus.Completed, confidence, confidenceScore, historyWeight,
             longs.ToFrozenDictionary(StringComparer.Ordinal), booleans.ToFrozenDictionary(StringComparer.Ordinal),
             scores.ToFrozenDictionary(StringComparer.Ordinal), reasons.AsReadOnly());
+    }
+
+    private static string? NormalizeInstance(string? directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory) || !Path.IsPathFullyQualified(directory)) return null;
+        try { return Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)); }
+        catch (Exception error) when (error is ArgumentException or NotSupportedException or PathTooLongException) { return null; }
     }
 
     private static bool Available(Dictionary<string, ICapability> values, string id) =>

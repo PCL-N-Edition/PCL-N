@@ -91,11 +91,14 @@ internal static partial class Program
         AssertEqual(17, RemediationCatalog.All.Count);
 
         ResourceObservationHistory history = new();
+        string instanceDirectory = Path.Combine(Path.GetTempPath(), "nexa-history-fixture", "versions", "fixture");
         for (int index = 0; index < 12; index++)
-            history.Record(new("fixture", "Vanilla", 21, 0, 0, 1536 + index, 512, 2304, 2560, 256, 1000, now));
+            history.Record(new(instanceDirectory, "Vanilla", 21, 0, 0, 1536 + index, 512, 2304, 2560, 256, 1000, now));
         ResourceEstimator calibrated = new(history: history);
-        ResourceEstimateSnapshot calibratedResult = calibrated.Estimate(new MachineCapabilitySnapshot(3, now, []));
+        ResourceEstimateSnapshot calibratedResult = calibrated.Estimate(new MachineCapabilitySnapshot(3, now, []),
+            new MachineCapabilityQuery(instanceDirectory));
         AssertTrue(calibratedResult.HeapRuntime.HistoricalWeight > 0);
+        AssertEqual(0d, calibrated.Estimate(new MachineCapabilitySnapshot(3, now, [])).HeapRuntime.HistoricalWeight);
 
         ResourceEstimatorProjection projection = new(history: history);
         IReadOnlyList<ICapability> projected = projection.Project(new Dictionary<string, ICapability>(), now);
