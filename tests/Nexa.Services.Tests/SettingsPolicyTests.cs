@@ -10,6 +10,40 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static async ValueTask SettingsQueriesDoNotWaitForDurableWrites()
+    {
+        foreach (bool fail in new[] { false, true })
+        {
+            var port = new BlockingPolicyPort(fail);
+            var (_, policy) = PolicyFixture(port);
+            string initial = Effective(policy, "game.memory").Value.Value!;
+            Task<XsrResult> write = Task.Run(() => policy.Set(new("game.memory", SettingsLayer.Global,
+                new(SettingsOverrideMode.Custom, "4096"))));
+            await port.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            try
+            {
+                var read = await Task.Run(() => Effective(policy, "game.memory")).WaitAsync(TimeSpan.FromSeconds(5));
+                AssertEqual(initial, read.Value.Value);
+            }
+            finally { port.Release.TrySetResult(); }
+            AssertEqual(!fail, (await write.WaitAsync(TimeSpan.FromSeconds(5))).IsSuccess);
+            AssertEqual(fail ? initial : "4096", Effective(policy, "game.memory").Value.Value);
+        }
+    }
+
+    private sealed class BlockingPolicyPort(bool fail) : ISettingsPort
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public IReadOnlyDictionary<string, string> Load() => new Dictionary<string, string>();
+        public void Save(IReadOnlyDictionary<string, string> entries)
+        {
+            Entered.TrySetResult();
+            if (!Release.Task.Wait(TimeSpan.FromSeconds(15))) throw new IOException("Test write gate timed out.");
+            if (fail) throw new IOException("Expected save failure.");
+        }
+    }
+
     private static void SettingsJavaPreferenceReachesLaunchSelection()
     {
         var (_, service) = PolicyFixture();

@@ -60,6 +60,7 @@ internal static partial class Program
         ("host history rejects unsuitable runs and preserves peak semantics", Sync(HostHistoryAdmissionPreservesPeakSemantics)),
         ("empty online model retires cached parameters", EmptyOnlineModelRetiresCachedParameters),
         ("resource history isolated by full instance directory", Sync(ResourceHistoryIsolatedByInstanceDirectory)),
+        ("settings queries do not wait for durable writes", SettingsQueriesDoNotWaitForDurableWrites),
         ("resource estimate excludes disabled mods", Sync(ResourceEstimateExcludesDisabledMods)),
         ("resource estimates remain advisory and count heap once", Sync(ResourceEstimatesRemainAdvisoryAndCountHeapOnce)),
         ("nested Fabric inventory reads declared candidates", NestedFabricInventoryReadsDeclaredCandidates),

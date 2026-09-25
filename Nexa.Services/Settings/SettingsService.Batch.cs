@@ -6,18 +6,25 @@ namespace Nexa.Services.Settings;
 
 public sealed partial class SettingsService
 {
+    private sealed record CommittedSettings(long Revision, IReadOnlyDictionary<string, string> Values);
+    private CommittedSettings _committed = new(0, new ReadOnlyDictionary<string, string>(new Dictionary<string, string>()));
     public long Revision { get; private set; }
     internal event Action<long>? Changed;
     private void NotifyChanged()
     {
         Revision++;
+        PublishCommittedSnapshot();
         Changed?.Invoke(Revision);
     }
 
     internal (long Revision, IReadOnlyDictionary<string, string> Values) ReadBatch()
     {
-        lock (_gate) return (Revision, new ReadOnlyDictionary<string, string>(CurrentEntries()));
+        var committed = Volatile.Read(ref _committed);
+        return (committed.Revision, committed.Values);
     }
+
+    private void PublishCommittedSnapshot() => Volatile.Write(ref _committed,
+        new(Revision, new ReadOnlyDictionary<string, string>(CurrentEntries())));
 
     /// <summary>One durable transaction. Validation and revision checks precede the single save.</summary>
     public XsrResult SetRawValues(IReadOnlyDictionary<string, string> changes, long? expectedRevision = null)

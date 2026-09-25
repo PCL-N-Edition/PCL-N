@@ -154,6 +154,7 @@ public sealed partial class SettingsService
             }
         }
 
+        PublishCommittedSnapshot();
         _log?.Info(
             "Settings",
             LoadError is null

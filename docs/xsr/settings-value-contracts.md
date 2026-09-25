@@ -43,3 +43,7 @@ Legacy memory uses the existing piecewise slider-to-MiB conversion. A custom new
 Apply timing is a contract for future consumers, not a claim that this stage has enabled a setting in the UI. The first settings page enables window width/height/mode, JVM/game arguments and developer visibility after connecting their consumers; remaining entries stay unavailable. Profile and Temporary have resolution semantics but reject public mutation.
 
 Import/export format: `{ "version": 1, "scope": "global" | "instance", "values": { "key": { "mode": "Custom" | "Auto" | "Inherit", "value": "..." } } }`. Auto/Inherit omit the payload. Instance imports use a directory identity supplied separately; exports do not carry machine-specific instance locations. Unknown keys, local-only keys, wrong scopes, invalid values and unsupported versions are rejected. Missing keys leave current values unchanged. Preview has no persistence or state effects; apply revalidates and checks its revision.
+
+## Nonblocking effective reads
+Effective queries read one immutable committed revision and values snapshot. They never acquire the persistence gate. While Save is pending, readers retain the previous snapshot; failed saves do not publish a new snapshot. The durable writer publishes the complete snapshot before revision notifications.
+
