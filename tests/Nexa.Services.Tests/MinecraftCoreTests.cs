@@ -616,6 +616,101 @@ internal static partial class Program
         finally { Directory.Delete(root, recursive: true); }
     }
 
+    internal static async ValueTask JavaRuntimeRecoveryReusesPinnedPlanAndVerifiedFiles()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string relative = OperatingSystem.IsWindows() ? "bin/java.exe" : "bin/java";
+            var metadata = new FakeInstallerMetadataProvider(JavaRuntimeInstaller.DetectPlatform().ToMojangKey(), relative, "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d");
+            using var client = new HttpClient(new StaticHttpMessageHandler("hello"));
+            using var cancellation = new CancellationTokenSource();
+            using (var first = new JavaRuntimeInstaller(new JavaRuntimeDownloadPlanService(metadata), client))
+            {
+                try
+                {
+                    await first.InstallAsync("java-runtime-test", root, new SynchronousProgress<JavaRuntimeInstallProgress>(p =>
+                    { if (p.Stage == "download") cancellation.Cancel(); }), cancellation.Token);
+                    throw new InvalidOperationException("Expected interruption before publication.");
+                }
+                catch (OperationCanceledException) { }
+            }
+            AssertFalse(Directory.Exists(Path.Combine(root, "java-runtime-test")));
+            using var unavailable = new HttpClient(new RejectJavaDownloadHandler());
+            using var resumed = new JavaRuntimeInstaller(new JavaRuntimeDownloadPlanService(new RejectJavaMetadata()), unavailable);
+            string executable = await resumed.InstallAsync("java-runtime-test", root);
+            AssertEqual("hello", await File.ReadAllTextAsync(executable));
+            using var repeat = new JavaRuntimeInstaller(new JavaRuntimeDownloadPlanService(metadata), unavailable);
+            AssertEqual(executable, await repeat.InstallAsync("java-runtime-test", root));
+            AssertFalse(Directory.EnumerateDirectories(Path.Combine(root, ".nexa-java-jobs"), "previous", SearchOption.AllDirectories).Any());
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    internal static async ValueTask JavaRuntimeRejectsActualDownloadOverrun()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string relative = OperatingSystem.IsWindows() ? "bin/java.exe" : "bin/java";
+            var metadata = new FakeInstallerMetadataProvider(JavaRuntimeInstaller.DetectPlatform().ToMojangKey(), relative, "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d");
+            using var client = new HttpClient(new StaticHttpMessageHandler("hello excess"));
+            using var installer = new JavaRuntimeInstaller(new JavaRuntimeDownloadPlanService(metadata), client);
+            try { await installer.InstallAsync("java-runtime-test", root); throw new InvalidOperationException("Expected bounded read rejection."); }
+            catch (InvalidDataException) { }
+            AssertFalse(Directory.Exists(Path.Combine(root, "java-runtime-test")));
+            AssertTrue((await installer.StopAsync(new(false))).IsSuccess);
+            AssertFalse(Directory.EnumerateFiles(root, "*.download", SearchOption.AllDirectories).Any());
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    internal static async ValueTask JavaRuntimeStopSeparatesPauseAndCancel()
+    {
+        foreach (bool pause in new[] { true, false })
+        {
+            string root = CreateTempDirectory();
+            try
+            {
+                string relative = OperatingSystem.IsWindows() ? "bin/java.exe" : "bin/java";
+                var metadata = new FakeInstallerMetadataProvider(JavaRuntimeInstaller.DetectPlatform().ToMojangKey(), relative, "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d");
+                var handler = new BlockingJavaDownloadHandler();
+                using var client = new HttpClient(handler);
+                using var installer = new JavaRuntimeInstaller(new JavaRuntimeDownloadPlanService(metadata), client);
+                var running = installer.InstallAsync("java-runtime-test", root);
+                await handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                AssertTrue((await installer.StopAsync(new(pause))).IsSuccess);
+                try { await running; throw new InvalidOperationException("Expected download interruption."); }
+                catch (OperationCanceledException) { }
+                using var restoredClient = new HttpClient(new StaticHttpMessageHandler("hello"));
+                using var restarted = new JavaRuntimeInstaller(new JavaRuntimeDownloadPlanService(new RejectJavaMetadata()), restoredClient);
+                AssertTrue((await restarted.RecoverAsync(root)).IsSuccess);
+                AssertEqual(pause, File.Exists(Path.Combine(root, "java-runtime-test", relative)));
+            }
+            finally { Directory.Delete(root, true); }
+        }
+    }
+    private sealed class BlockingJavaDownloadHandler : HttpMessageHandler
+    {
+        internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Entered.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("Expected cancellation.");
+        }
+    }
+
+    private sealed class RejectJavaMetadata : IJavaRuntimeMetadataProvider
+    {
+        public ValueTask<string> GetRuntimeIndexAsync(CancellationToken cancellationToken = default) => throw new InvalidOperationException("Pinned metadata must be reused.");
+        public ValueTask<string> GetManifestAsync(string manifestUrl, CancellationToken cancellationToken = default) => throw new InvalidOperationException("Pinned metadata must be reused.");
+    }
+    private sealed class RejectJavaDownloadHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => throw new InvalidOperationException("Verified runtime files must be reused.");
+    }
+
     private sealed class FakeJavaRuntimeMetadataProvider : IJavaRuntimeMetadataProvider
     {
         public ValueTask<string> GetRuntimeIndexAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult("{\"windows-x64\":{\"java-runtime-gamma\":[{\"version\":{\"name\":\"21.0.2\"},\"manifest\":{\"url\":\"https://example.invalid/runtime.json\"}}]}}");
@@ -679,3 +774,4 @@ internal static partial class Program
     }
 
 }
+

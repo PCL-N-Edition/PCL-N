@@ -52,7 +52,8 @@ public sealed partial class MinecraftInstallService
             string[] files = Directory.GetFiles(stage, "*", SearchOption.AllDirectories)
                 .Select(file => Path.GetRelativePath(stage, file).Replace('\\', '/'))
                 .Where(relative => !relative.StartsWith(InstallTaskJournal.DirectoryName + "/", StringComparison.Ordinal)
-                    && !relative.StartsWith(".nexa-install/", StringComparison.Ordinal))
+                    && !relative.StartsWith(".nexa-install/", StringComparison.Ordinal)
+                    && !relative.Split('/').Any(segment => segment is ".nexa-java-jobs" or ".nexa-java.lock"))
                 .Where(relative => relative == manifest || !(relative.StartsWith("versions/", StringComparison.Ordinal)
                     && relative.EndsWith(".json", StringComparison.Ordinal) && File.Exists(ForgeInstallService.Contained(root, relative))))
                 .ToArray();

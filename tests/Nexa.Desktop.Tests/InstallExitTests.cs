@@ -1,5 +1,6 @@
 using Nexa.Desktop.Ui;
 using Nexa.Services.Minecraft.Install;
+using Nexa.Services.Minecraft.Java;
 using Nexa.Services.Tasks;
 using Nexa.Xsr;
 using Nexa.Xsr.Runtime;
@@ -9,6 +10,36 @@ namespace Nexa.Desktop.Tests;
 
 internal static partial class Program
 {
+    private static void JavaOnlyInstallationGuardsCloseUntilStopped()
+    {
+        XsrStateStoreBuilder states = new(); TaskCenterStateContract.DeclareState(states);
+        var store = states.Build(); var tasks = new TaskCenterService(store);
+        using var task = tasks.Begin(new("java-install:test", "安装 Java", ["下载 Java"]));
+        using var feedback = new DesktopFeedbackService();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var closed = new ManualResetEventSlim();
+        XsrCommandRouterBuilder regular = new();
+        regular.Register<MinecraftInstallStopCommand>(MinecraftInstallRoutes.Stop, (_, _) => ValueTask.FromResult(XsrResult.Success()));
+        XsrCommandRouterBuilder java = new();
+        java.Register<JavaInstallStopCommand>(JavaInstallRoutes.Stop, async (command, token) =>
+        {
+            AssertTrue(command.Pause); entered.Set();
+            await Task.Run(() => release.Wait(token), token);
+            return XsrResult.Success();
+        });
+        var controller = new DesktopInstallExitCoordinator(store, regular.Build(new NoopDispatchObserver()), feedback, closed.Set, java.Build(new NoopDispatchObserver()));
+        AssertFalse(controller.CanClose());
+        feedback.ResolveDialog(feedback.Snapshot().Dialog!.Id, true);
+        try
+        {
+            AssertTrue(entered.Wait(TimeSpan.FromSeconds(5)));
+            AssertFalse(closed.IsSet); AssertFalse(controller.CanClose());
+        }
+        finally { release.Set(); }
+        AssertTrue(closed.Wait(TimeSpan.FromSeconds(5)));
+    }
+
     private static void InstallExitFailureAllowsRetryAfterWorkerBecomesTerminal()
     {
         XsrStateStoreBuilder states = new(); TaskCenterStateContract.DeclareState(states);

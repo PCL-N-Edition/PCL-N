@@ -38,6 +38,7 @@ internal static partial class Program
     [
         ("Install exit failure allows retry after worker becomes terminal", InstallExitFailureAllowsRetryAfterWorkerBecomesTerminal),
         ("Install exit waits for stop and preserves stay choice", InstallExitWaitsForStopAndPreservesStayChoice),
+        ("Java only installation guards close until stopped", JavaOnlyInstallationGuardsCloseUntilStopped),
         ("Startup install recovery owns dispatch and shutdown", StartupInstallRecoveryOwnsDispatchAndShutdown),
         ("first run keeps drafts and commits only at finish", FirstRunKeepsDraftsAndCommitsOnlyAtFinish),
         ("product PXML shell accepts native window metrics", ProductPxmlShellAcceptsNativeWindowMetrics),

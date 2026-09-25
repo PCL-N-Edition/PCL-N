@@ -410,6 +410,9 @@ internal static partial class Program
         ("minecraft launch plan merges inherited and modern arguments", Sync(MinecraftLaunchPlanMergesInheritedAndModernArguments)),
         ("minecraft download source planner covers official and unlisted mirrors", Sync(MinecraftDownloadSourcePlannerCoversOfficialAndUnlistedMirrors)),
         ("minecraft Java runtime installer verifies and installs", MinecraftJavaRuntimeInstallerVerifiesAndInstalls),
+        ("Java runtime recovery reuses pinned plan and verified files", JavaRuntimeRecoveryReusesPinnedPlanAndVerifiedFiles),
+        ("Java runtime rejects actual download overrun", JavaRuntimeRejectsActualDownloadOverrun),
+        ("Java runtime stop separates pause and cancel", JavaRuntimeStopSeparatesPauseAndCancel),
     ];
 
     private static async Task<int> Main(string[] args)

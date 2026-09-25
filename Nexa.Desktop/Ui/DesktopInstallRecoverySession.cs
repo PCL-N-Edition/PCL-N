@@ -1,4 +1,5 @@
 using Nexa.Services.Minecraft.Install;
+using Nexa.Services.Minecraft.Java;
 using Nexa.Xsr;
 using Nexa.Xsr.Runtime;
 
@@ -11,7 +12,7 @@ internal sealed class DesktopInstallRecoverySession : IDisposable
     private readonly Task _work;
     private int _disposed;
 
-    internal DesktopInstallRecoverySession(XsrCommandRouter commands, IReadOnlyList<string> roots, Action<string> report)
+    internal DesktopInstallRecoverySession(XsrCommandRouter commands, IReadOnlyList<string> roots, Action<string> report, XsrCommandRouter? javaCommands = null)
     {
         if (!commands.TryResolve(MinecraftInstallRoutes.Recover, out var route)) throw new InvalidOperationException("安装恢复路由未注册。");
         var request = new MinecraftInstallRecoveryCommand(Array.AsReadOnly(roots.ToArray()));
@@ -21,6 +22,12 @@ internal sealed class DesktopInstallRecoverySession : IDisposable
             {
                 var result = await commands.Dispatch(route, request, cancellationToken: _lifetime.Token).Completion.ConfigureAwait(false);
                 if (!result.IsSuccess && result.Error?.Code != XsrRuntimeErrors.Cancelled().Code && !_lifetime.IsCancellationRequested) report("部分安装任务未能恢复，记录已保留；请查看任务中心。");
+                if (javaCommands is not null && javaCommands.TryResolve(JavaInstallRoutes.Recover, out var javaRoute))
+                {
+                    var javaResult = await javaCommands.Dispatch(javaRoute, new JavaInstallRecoverCommand(), cancellationToken: _lifetime.Token).Completion.ConfigureAwait(false);
+                    if (!javaResult.IsSuccess && javaResult.Error?.Code != XsrRuntimeErrors.Cancelled().Code && !_lifetime.IsCancellationRequested)
+                        report("Java 安装未能恢复，记录已保留；请查看任务中心。");
+                }
             }
             catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
             catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)

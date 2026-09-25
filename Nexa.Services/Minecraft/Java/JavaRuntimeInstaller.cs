@@ -25,57 +25,98 @@ public interface IJavaRuntimeInstaller
 /// Installs a planned Mojang runtime with resumable, hash-verified file replacement.
 /// The installer owns no global state and can therefore be hosted by a command handler.
 /// </summary>
-public sealed class JavaRuntimeInstaller : IJavaRuntimeInstaller, IDisposable
+public sealed partial class JavaRuntimeInstaller : IJavaRuntimeInstaller, IDisposable
 {
     private readonly JavaRuntimeDownloadPlanService _planService;
     private readonly HttpClient _httpClient;
     private readonly bool _ownsHttpClient;
     private readonly LogService? _log;
 
-    public JavaRuntimeInstaller(IJavaRuntimeMetadataProvider metadataProvider, LogService? log = null)
+    public JavaRuntimeInstaller(IJavaRuntimeMetadataProvider metadataProvider, LogService? log = null, Nexa.Services.Tasks.TaskCenterService? tasks = null)
         : this(
             new JavaRuntimeDownloadPlanService(metadataProvider),
             new HttpClient(log is null ? new HttpClientHandler() : new DiagnosticHttpHandler(log, new HttpClientHandler())) { Timeout = TimeSpan.FromMinutes(10) },
-            ownsHttpClient: true, log)
+            ownsHttpClient: true, log, tasks)
     {
     }
 
-    public JavaRuntimeInstaller(JavaRuntimeDownloadPlanService planService, HttpClient httpClient, bool ownsHttpClient = false, LogService? log = null)
+    public JavaRuntimeInstaller(JavaRuntimeDownloadPlanService planService, HttpClient httpClient, bool ownsHttpClient = false, LogService? log = null, Nexa.Services.Tasks.TaskCenterService? tasks = null)
     {
         _planService = planService ?? throw new ArgumentNullException(nameof(planService));
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _ownsHttpClient = ownsHttpClient;
         _log = log;
+        _tasks = tasks;
     }
 
-    public async Task<string> InstallAsync(
+    private async Task<string> InstallCoreAsync(
         string requestedComponent,
         string runtimeRootDirectory,
-        IProgress<JavaRuntimeInstallProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        IProgress<JavaRuntimeInstallProgress>? progress,
+        JavaExecution execution,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(requestedComponent);
         ArgumentException.ThrowIfNullOrWhiteSpace(runtimeRootDirectory);
 
         using LogOperation? operation = _log?.BeginOperation("Java", "InstallRuntime", $"component={requestedComponent}");
         string? currentFile = null;
+        FileStream? rootLease = null;
         try
         {
+            runtimeRootDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(runtimeRootDirectory));
+            Nexa.Services.Minecraft.Management.RecoveryBlobStore.CheckLinks(runtimeRootDirectory);
+            Directory.CreateDirectory(runtimeRootDirectory);
+            string lockPath = Path.Combine(runtimeRootDirectory, ".nexa-java.lock");
+            Nexa.Services.Minecraft.Management.RecoveryBlobStore.CheckLinks(lockPath);
+            rootLease = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            var journal = await FindPendingAsync(runtimeRootDirectory, requestedComponent, cancellationToken).ConfigureAwait(false)
+                ?? await JavaInstallJournal.CreateAsync(runtimeRootDirectory, requestedComponent, cancellationToken).ConfigureAwait(false);
+            execution.Ready.TrySetResult();
+            if (journal.CancelRequested)
+            {
+                await journal.CancelAsync(MatchesAsync).ConfigureAwait(false);
+                throw new IOException("Java 安装已撤回，请重试。");
+            }
             operation?.Stage("resolve_runtime_metadata");
-            JavaRuntimeDownloadPlan plan = await _planService.CreatePlanAsync(
-                requestedComponent,
-                DetectPlatform(),
-                runtimeRootDirectory,
-                cancellationToken).ConfigureAwait(false);
-            Directory.CreateDirectory(plan.TargetDirectory);
+            JavaRuntimeDownloadPlan? plan = await journal.ReadPlanAsync(cancellationToken).ConfigureAwait(false);
+            if (plan is null)
+            {
+                plan = await _planService.CreatePlanAsync(requestedComponent, DetectPlatform(), runtimeRootDirectory, cancellationToken).ConfigureAwait(false);
+                await journal.SavePlanAsync(plan, cancellationToken).ConfigureAwait(false);
+            }
+            if (journal.Ready)
+            {
+                await journal.PublishAsync(plan, MatchesAsync).ConfigureAwait(false);
+                LocalJavaRuntimeLocator.Invalidate();
+                return FindJavaExecutable(plan.TargetDirectory) ?? throw new IOException("Java 安装缺少可执行文件。");
+            }
+            bool existingValid = FindJavaExecutable(plan.TargetDirectory) is not null;
+            foreach (var existing in plan.Files)
+            {
+                if (!existingValid) break;
+                existingValid = await MatchesAsync(existing.TargetPath, existing, cancellationToken).ConfigureAwait(false);
+            }
+            if (existingValid)
+            {
+                foreach (var existing in plan.Files) ApplyExecutableMode(existing);
+                await journal.CompleteExistingAsync(cancellationToken).ConfigureAwait(false);
+                LocalJavaRuntimeLocator.Invalidate();
+                string executable = FindJavaExecutable(plan.TargetDirectory)!;
+                progress?.Report(new("complete", 1d, plan.Files.Count, plan.Files.Count, executable));
+                operation?.Complete("Reused verified runtime");
+                return executable;
+            }
+            Directory.CreateDirectory(journal.Payload);
 
             int total = Math.Max(plan.Files.Count, 1);
             int completed = 0;
             progress?.Report(new JavaRuntimeInstallProgress("prepare", 0.02d, 0, total, plan.VersionName));
 
             operation?.Stage("verify_and_download_files", $"count={plan.Files.Count} target={plan.TargetDirectory}");
-            foreach (JavaRuntimeDownloadFile file in plan.Files)
+            foreach (JavaRuntimeDownloadFile plannedFile in plan.Files)
             {
+                JavaRuntimeDownloadFile file = journal.StagedFile(plannedFile);
                 currentFile = file.RelativePath;
                 _log?.Trace("Java", $"Runtime file verification path={file.RelativePath} expected_bytes={file.Size}");
                 cancellationToken.ThrowIfCancellationRequested();
@@ -86,6 +127,11 @@ public sealed class JavaRuntimeInstaller : IJavaRuntimeInstaller, IDisposable
                 if (File.Exists(file.TargetPath) && await MatchesAsync(file.TargetPath, file, cancellationToken).ConfigureAwait(false))
                 {
                     _log?.Trace("Java", $"Reusing verified runtime file path={file.RelativePath}");
+                    ApplyExecutableMode(file);
+                }
+                else if (await MatchesAsync(plannedFile.TargetPath, plannedFile, cancellationToken).ConfigureAwait(false))
+                {
+                    File.Copy(plannedFile.TargetPath, file.TargetPath, overwrite: true);
                     ApplyExecutableMode(file);
                 }
                 else
@@ -103,9 +149,12 @@ public sealed class JavaRuntimeInstaller : IJavaRuntimeInstaller, IDisposable
             }
 
             operation?.Stage("locate_installed_executable");
-            string? javaExecutable = FindJavaExecutable(plan.TargetDirectory);
+            string? javaExecutable = FindJavaExecutable(journal.Payload);
             if (javaExecutable is null)
                 throw new InvalidOperationException($"Java runtime was installed but no java executable was found in '{plan.TargetDirectory}'.");
+            await journal.MarkReadyAsync(cancellationToken).ConfigureAwait(false);
+            await journal.PublishAsync(plan, MatchesAsync).ConfigureAwait(false);
+            javaExecutable = FindJavaExecutable(plan.TargetDirectory)!;
             progress?.Report(new JavaRuntimeInstallProgress("complete", 1d, total, total, javaExecutable));
             operation?.Complete($"files={completed} executable={javaExecutable}");
             LocalJavaRuntimeLocator.Invalidate();
@@ -122,6 +171,7 @@ public sealed class JavaRuntimeInstaller : IJavaRuntimeInstaller, IDisposable
             operation?.Fail(exception);
             throw;
         }
+        finally { rootLease?.Dispose(); }
     }
 
     public static JavaRuntimePlatform DetectPlatform()
@@ -158,6 +208,8 @@ public sealed class JavaRuntimeInstaller : IJavaRuntimeInstaller, IDisposable
 
     private static async Task<bool> MatchesAsync(string path, JavaRuntimeDownloadFile file, CancellationToken cancellationToken)
     {
+        if (!File.Exists(path)) return false;
+        Nexa.Services.Minecraft.Management.RecoveryBlobStore.CheckLinks(path);
         if (file.Size >= 0 && new FileInfo(path).Length != file.Size) return false;
         if (string.IsNullOrWhiteSpace(file.Sha1)) return true;
         string actual = await ComputeSha1Async(path, cancellationToken).ConfigureAwait(false);
@@ -178,8 +230,10 @@ public sealed class JavaRuntimeInstaller : IJavaRuntimeInstaller, IDisposable
             await using (Stream network = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
             await using (FileStream output = new(temporary, FileMode.Create, FileAccess.Write, FileShare.None, 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan))
             {
-                await network.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+                await Nexa.Services.Files.ArchiveReadBudget.CopyAsync(network, output, file.Size,
+                    512L * 1024 * 1024, new(file.Size), cancellationToken).ConfigureAwait(false);
                 await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+                output.Flush(true);
             }
 
             if (!await MatchesAsync(temporary, file, cancellationToken).ConfigureAwait(false))

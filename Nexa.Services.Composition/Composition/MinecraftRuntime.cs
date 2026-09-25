@@ -132,7 +132,7 @@ public static class MinecraftRuntimeComposer
         if (javaInstaller is null)
         {
             HttpJavaRuntimeMetadataProvider metadata = new(host.Logging);
-            JavaRuntimeInstaller concreteInstaller = new(metadata, host.Logging);
+            JavaRuntimeInstaller concreteInstaller = new(metadata, host.Logging, host.Tasks);
             owned.Add(metadata);
             owned.Add(concreteInstaller);
             installer = concreteInstaller;
@@ -183,6 +183,13 @@ public static class MinecraftRuntimeComposer
             windowProbe, authlib, gameWindowAppeared, fileCompletion, host.SettingsPolicy, preflight);
         IXsrDispatchObserver dispatchObserver = observer ?? NullDispatchObserver.Instance;
         XsrCommandRouterBuilder commandBuilder = new();
+        if (installer is JavaRuntimeInstaller durableInstaller)
+        {
+            commandBuilder.Register<JavaInstallStopCommand>(JavaInstallRoutes.Stop,
+                (command, token) => new(durableInstaller.StopAsync(command, token)));
+            commandBuilder.Register<JavaInstallRecoverCommand>(JavaInstallRoutes.Recover,
+                (_, token) => new(durableInstaller.RecoverAsync(runtimeRoot, token)));
+        }
         commandBuilder.Register<LaunchPreflightDecision>(LaunchPreflightGate.DecisionCommand,
             (decision, _) => ValueTask.FromResult(preflight.Decide(decision) ? Nexa.Xsr.XsrResult.Success()
                 : Nexa.Xsr.XsrResult.Failure(MinecraftErrors.InvalidRequest("预检决定已失效或不可绕过。"))));
