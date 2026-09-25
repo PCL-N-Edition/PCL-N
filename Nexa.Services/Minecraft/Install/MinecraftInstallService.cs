@@ -126,6 +126,7 @@ public sealed partial class MinecraftInstallService : IDisposable
             cancellationToken, task.CancellationToken, execution.Token);
         try
         {
+            command = command with { RootDirectory = MinecraftLibraryService.NormalizeDirectory(command.RootDirectory) };
             using var recoveryOperation = await InstanceRecoveryOperationGate.EnterOperationAsync(
                 Path.GetFullPath(command.RootDirectory), linked.Token).ConfigureAwait(false);
             command = command with { InheritVanilla = command.InheritVanilla ?? _inheritVanilla?.Invoke() ?? false };

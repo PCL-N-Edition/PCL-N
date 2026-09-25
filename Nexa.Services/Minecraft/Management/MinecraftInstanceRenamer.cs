@@ -33,7 +33,7 @@ internal static class MinecraftInstanceRenamer
         await Gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            root = Path.GetFullPath(root);
+            root = MinecraftLibraryService.NormalizeDirectory(root);
             if (durableDirectory is not null && File.Exists(Path.Combine(durableDirectory, "plan.json")))
             {
                 EnsureIdle(root, store, token);

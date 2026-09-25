@@ -138,7 +138,7 @@ internal static partial class Program
             string dependent = Path.Combine(root, "versions", "dependent"); Directory.CreateDirectory(dependent);
             File.WriteAllText(Path.Combine(dependent, "dependent.json"), """{"id":"dependent","inheritsFrom":"1.20.1","jar":"1.20.1"}""");
             var original = await MinecraftInstallEditService.ReadAsync(new(root, "1.20.1"));
-            var result = await fixture.Install.InstallAsync(new(root, "1.20.1", InstanceName: "1.20.1", EditFingerprint: original.Fingerprint) { NewInstanceName = "My Game" });
+            var result = await fixture.Install.InstallAsync(new(root + Path.DirectorySeparatorChar, "1.20.1", InstanceName: "1.20.1", EditFingerprint: original.Fingerprint) { NewInstanceName = "My Game" });
             AssertTrue(result.IsSuccess);
             AssertEqual("My Game", result.Value!.InstanceId);
             AssertFalse(Directory.Exists(source));
