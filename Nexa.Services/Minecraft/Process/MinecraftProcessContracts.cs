@@ -237,14 +237,19 @@ public sealed class MinecraftProcessService : IAsyncDisposable
     private static readonly TimeSpan StaleSessionAge = TimeSpan.FromHours(12);
 
     private readonly IMinecraftProcessPort _port;
+    private readonly string? _jvmHostExecutable;
     private readonly LogService? _log;
     private readonly XsrStateStore? _store;
     private readonly XsrStateId _sessionsId;
     private readonly ConcurrentDictionary<Guid, MinecraftProcessSession> _sessions = new();
     private readonly ConcurrentDictionary<Guid, Lazy<Task>> _analyses = new();
 
-    public MinecraftProcessService(IMinecraftProcessPort? port = null, XsrStateStore? hostStore = null, LogService? log = null)
+    public MinecraftProcessService(IMinecraftProcessPort? port = null, XsrStateStore? hostStore = null, LogService? log = null,
+        string? jvmHostExecutable = null)
     {
+        if (jvmHostExecutable is not null && !Path.IsPathFullyQualified(jvmHostExecutable))
+            throw new ArgumentException("JVM host executable must be an absolute path.", nameof(jvmHostExecutable));
+        _jvmHostExecutable = jvmHostExecutable;
         _port = port ?? new SystemMinecraftProcessPort();
         _log = log;
         _store = hostStore;
@@ -262,13 +267,25 @@ public sealed class MinecraftProcessService : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceId);
         using LogOperation? operation = _log?.BeginOperation("Process", "StartProcess", $"instance={instanceId}");
+        using MemoryStream? bootstrap = _jvmHostExecutable is null ? null : new MemoryStream();
+        MinecraftProcessSession? startedSession = null;
         try
         {
             ProcessStartInfo startInfo = plan.ToStartInfo();
+            if (bootstrap is not null)
+            {
+                await JvmHostBootstrap.WriteAsync(bootstrap, plan, cancellationToken).ConfigureAwait(false);
+                bootstrap.Position = 0;
+                startInfo.FileName = _jvmHostExecutable!;
+                startInfo.ArgumentList.Clear();
+                startInfo.ArgumentList.Add("--jvm-host");
+                startInfo.RedirectStandardInput = true;
+            }
             operation?.Stage("os_start", $"executable={startInfo.FileName} working_directory={startInfo.WorkingDirectory} argument_count={startInfo.ArgumentList.Count}");
             System.Diagnostics.Process process = await _port.StartAsync(startInfo, cancellationToken).ConfigureAwait(false);
             Guid sessionId = Guid.NewGuid();
             MinecraftProcessSession session = new(process, instanceId, sessionId, DateTimeOffset.UtcNow, plan.InstanceDirectory);
+            startedSession = session;
             session.Changed += OnSessionChanged;
             _sessions[sessionId] = session;
             // Publish the Created observation even if the child exited between Process.Start and
@@ -276,19 +293,37 @@ public sealed class MinecraftProcessService : IAsyncDisposable
             Publish(session.CreatedSnapshot);
             if (session.Snapshot.State != MinecraftProcessState.Created) OnSessionChanged(session.Snapshot);
             session.StartLifecycle();
+            if (bootstrap is not null)
+            {
+                using CancellationTokenSource transfer = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                transfer.CancelAfter(TimeSpan.FromSeconds(30));
+                try
+                {
+                    await bootstrap.CopyToAsync(process.StandardInput.BaseStream, transfer.Token).ConfigureAwait(false);
+                    await process.StandardInput.BaseStream.FlushAsync(transfer.Token).ConfigureAwait(false);
+                }
+                finally { process.StandardInput.Close(); }
+            }
             PruneSessions();
             operation?.Complete($"session={sessionId} pid={process.Id} state={session.Snapshot.State}");
             return session;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            startedSession?.Cancel();
             operation?.Cancel();
             throw;
         }
         catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
         {
+            startedSession?.Cancel();
             operation?.Fail(exception);
             throw;
+        }
+        finally
+        {
+            if (bootstrap is not null && bootstrap.TryGetBuffer(out ArraySegment<byte> bytes))
+                bytes.AsSpan().Clear();
         }
     }
 

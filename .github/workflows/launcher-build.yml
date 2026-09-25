@@ -128,6 +128,16 @@ jobs:
             -p:XsrVersionSequence="$VERSION_SEQUENCE" -p:XsrCommitShort="$COMMIT_SHORT" \
             -p:NexaMicrosoftClientId="$NEXA_MS_CLIENT_ID" -p:NexaLittleSkinClientId="$NEXA_LITTLESKIN_CLIENT_ID" \
             --output "$RUNNER_TEMP/launcher"
+      - name: Publish isolated NativeAOT JVM host
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          dotnet publish Nexa.Jvm.Host/Nexa.Jvm.Host.csproj --configuration Release \
+            -r '${{ matrix.rid }}' --self-contained true -m:1 -nodeReuse:false \
+            -p:PublishAot=true -p:StripSymbols=true \
+            -p:XsrVersionPrefix="$VERSION_PREFIX" -p:XsrVersionChannel="$VERSION_CHANNEL" \
+            -p:XsrVersionSequence="$VERSION_SEQUENCE" -p:XsrCommitShort="$COMMIT_SHORT" \
+            --output "$RUNNER_TEMP/launcher"
       - name: Smoke-run published executable
         shell: bash
         run: |

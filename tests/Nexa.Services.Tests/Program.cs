@@ -24,6 +24,7 @@ internal static partial class Program
         ("estimator preflight and remediation remain layered", Sync(EstimatorPreflightAndRemediationRemainLayered)),
         ("remediation actions require exact handlers", RemediationActionsRequireExactHandlers),
         ("JVM host describes the process boundary", Sync(JvmHostDescribesTheProcessBoundary)),
+        ("JVM host transport owns bootstrap and cancellation", JvmHostTransportOwnsBootstrapAndCancellation),
         ("JVM bootstrap preserves explicit boundaries and rejects malformed frames", JvmBootstrapPreservesBoundaryAndRejectsMalformedFrames),
         ("settings catalog locks final IA and developer visibility", Sync(SettingsCatalogLocksFinalIa)),
         ("settings policy uses sealed foundation routes", SettingsPolicyUsesSealedFoundationRoutes),
@@ -345,6 +346,7 @@ internal static partial class Program
 
     private static async Task<int> Main(string[] args)
     {
+        if (args is ["--jvm-host"]) return await ReceiveJvmHostFixture();
         if (args.Contains("--live-install-catalog")) { await LiveInstallCatalogSmoke(); return 0; }
         foreach ((string name, Func<ValueTask> body) in TestCases)
         {

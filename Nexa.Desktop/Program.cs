@@ -216,12 +216,14 @@ internal static class Program
             host,
             options: ComposeAccountOnboardingOptions(),
             observer: operationLog.Dispatch);
+        string jvmHostPath = Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "Nexa.Jvm.Host.exe" : "Nexa.Jvm.Host");
         using MinecraftRuntime minecraft = MinecraftRuntimeComposer.Compose(
             host,
             minecraftRootDirectory,
             identityResolver: accounts.LaunchIdentityResolver,
             observer: operationLog.Dispatch,
             launcherVersion: buildInfo.SemanticVersion,
+            jvmHostExecutable: !OperatingSystem.IsMacOS() && File.Exists(jvmHostPath) ? jvmHostPath : null,
             gameWindowAppeared: pid => MinecraftWindowIntegration.DetachGameWindows(
                 pid,
                 "Nexa.Minecraft." + pid.ToString(System.Globalization.CultureInfo.InvariantCulture),

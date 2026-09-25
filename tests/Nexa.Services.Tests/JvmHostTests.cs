@@ -6,6 +6,51 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static async Task<int> ReceiveJvmHostFixture()
+    {
+        try
+        {
+            using Stream input = Console.OpenStandardInput();
+            var request = await JvmHostBootstrap.ReadAsync(input);
+            return request.MainClass == "fixture.Main" && request.GameArguments.Count == 2
+                && request.GameArguments[0].Length == 0 && request.GameArguments[1] == "private-token" ? 0 : 8;
+        }
+        catch (EndOfStreamException) { return 9; }
+    }
+
+    private static async ValueTask JvmHostTransportOwnsBootstrapAndCancellation()
+    {
+        string executable = Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "Nexa.Services.Tests.exe" : "Nexa.Services.Tests");
+        MinecraftLaunchPlan plan = new("java", Path.GetTempPath(), ["-cp", "fixture", "fixture.Main", "", "private-token"],
+            ["fixture"], [], new MinecraftModLoaderDescriptor(MinecraftModLoaderKind.Vanilla, null, "fixture.Main", []))
+        { MainClassIndex = 2 };
+        await using var service = new MinecraftProcessService(jvmHostExecutable: executable);
+        var session = await service.StartAsync(plan, "host-fixture");
+        AssertEqual(0, await session.WaitForExitAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(15)));
+        AssertEqual("--jvm-host", session.Process.StartInfo.ArgumentList.Single());
+        AssertEqual(Path.TrimEndingDirectorySeparator(Path.GetFullPath(plan.InstanceDirectory)), session.Snapshot.InstanceDirectory);
+
+        using CancellationTokenSource cancellation = new();
+        var port = new CancellingHostPort(cancellation);
+        await using var cancelledService = new MinecraftProcessService(port, jvmHostExecutable: executable);
+        try { await cancelledService.StartAsync(plan, "cancelled-host", cancellation.Token); throw new InvalidOperationException("Cancellation ignored."); }
+        catch (OperationCanceledException) { }
+        AssertTrue(port.Child is not null);
+        await port.Child!.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        AssertTrue(cancelledService.ListSessions().All(static item => item.State is not (MinecraftProcessState.Created or MinecraftProcessState.Running)));
+    }
+
+    private sealed class CancellingHostPort(CancellationTokenSource cancellation) : IMinecraftProcessPort
+    {
+        public System.Diagnostics.Process? Child { get; private set; }
+        public ValueTask<System.Diagnostics.Process> StartAsync(System.Diagnostics.ProcessStartInfo info, CancellationToken token = default)
+        {
+            Child = System.Diagnostics.Process.Start(info)!;
+            cancellation.Cancel();
+            return ValueTask.FromResult(Child);
+        }
+    }
+
     private static async ValueTask JvmBootstrapPreservesBoundaryAndRejectsMalformedFrames()
     {
         MinecraftLaunchPlan plan = new("java", "游戏目录", ["-cp", "earlier", "-Dtest=yes", "-cp", "final", "example.Main", "", "用户名", "--token", "fixture"],

@@ -30,16 +30,20 @@ The isolated-host bootstrap contract is a versioned, length-prefixed binary fram
 stdin pipe, never a JSON request file or command-line credential payload. Strict UTF-8, a 4 MiB
 frame budget, a 1 MiB string budget and 16,384 arguments per vector apply before allocation.
 Truncated, oversized, unknown-version and trailing data are rejected. This is a one-time child
-bootstrap, not synchronous Sidecar dispatch. The codec alone does not enable JNI execution;
-the existing subprocess executor remains active until the native host is validated.
+bootstrap, not synchronous Sidecar dispatch.
 
 The dedicated `Nexa.Jvm.Host` executable references Services for the bootstrap protocol only,
 without Desktop or renderer references. It reads exactly one bootstrap frame from stdin and
 invokes JNI on a dedicated thread. JVM exceptions
 are described to stderr and produce a nonzero exit; DestroyJavaVM waits for non-daemon threads.
 The JVM library remains loaded until process exit. macOS first-thread/run-loop integration is
-not yet available and this mode rejects macOS explicitly. Normal launch routing is unchanged
-until end-to-end host transport and platform smoke tests are in place.
+not yet available and this mode rejects macOS explicitly. On Windows/Linux Desktop selects a sibling
+`Nexa.Jvm.Host` executable when present; unpackaged development builds and macOS retain the
+Java executable path. MinecraftProcessService accepts the configured absolute Host path,
+validates/encodes the request before spawning, starts output drains before writing stdin and
+closes stdin after transfer. Transfer cancellation/failure terminates the registered child;
+there is no retry through java.exe that could create a duplicate game. The launch plan retains
+the selected Java identity, working directory and root-qualified instance for observations.
 
 Windows .NET apphost CET conflicts with HotSpot initialization on supported hardware (reproduced
 as 0xC0000409 before VM creation). Only the isolated Host opts out via CETCompat=false; Desktop

@@ -106,7 +106,8 @@ public static class MinecraftRuntimeComposer
         Nexa.Services.Accounts.IAccountLaunchIdentityResolver? identityResolver = null,
         string? launcherVersion = null,
         IMinecraftWindowProbe? windowProbe = null,
-        Action<int>? gameWindowAppeared = null)
+        Action<int>? gameWindowAppeared = null,
+        string? jvmHostExecutable = null)
     {
         ArgumentNullException.ThrowIfNull(host);
         ArgumentException.ThrowIfNullOrWhiteSpace(minecraftRootDirectory);
@@ -116,7 +117,8 @@ public static class MinecraftRuntimeComposer
 
         MinecraftVersionDiscovery versionDiscovery = discovery ?? new MinecraftVersionDiscovery(host.Logging);
         MinecraftInstanceDiscovery instanceDiscovery = new(host.Logging, versionDiscovery);
-        MinecraftProcessService processService = processes ?? new MinecraftProcessService(hostStore: host.StateStore, log: host.Logging);
+        MinecraftProcessService processService = processes ?? new MinecraftProcessService(hostStore: host.StateStore, log: host.Logging,
+            jvmHostExecutable: jvmHostExecutable);
         if (!ReferenceEquals(host.StateStore, processService.StateStore))
         {
             throw new ArgumentException(
