@@ -7,4 +7,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 USER 10001:10001
 ENV HOME=/home/benchmark LIBGL_ALWAYS_SOFTWARE=1
 COPY entrypoint.sh /benchmark-entrypoint.sh
+COPY display-run.sh /benchmark-display-run.sh
 ENTRYPOINT ["/bin/sh", "/benchmark-entrypoint.sh"]

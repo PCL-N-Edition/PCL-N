@@ -44,6 +44,12 @@ stage; it produced no training sample. Independent 20-second native-host, Java a
 probes now precede installation, and fixed stage labels distinguish archive inspection, Java probing
 and launch-file completion. A successful environment probe does not establish a working game.
 
+Run 36105255472 passed native-host, Java and first virtual-display probes, then stalled before
+the measured host printed archive verification. Local Linux NativeAOT enters archive inspection
+with minimal inputs. Keep one X server across the display probe and measured client, rather than
+tearing it down and starting a second unobserved server. Separate display-ready, process-entry and
+cancellation-registration markers narrow any remaining stall; the cause is not yet proven.
+
 ## Dataset and runner selection
 
 Maintain a reviewed, versioned pack catalog with provider project/version IDs, archive hashes,

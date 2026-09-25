@@ -17,6 +17,7 @@ internal static class Program
 {
     private static async Task<int> Main(string[] args)
     {
+        Console.WriteLine("Benchmark stage: process entry.");
         if (args is ["--help"] or [])
         {
             Console.WriteLine("Nexa.Minecraft.Benchmarks <archive> <sha256> <java> <Jvm.Host> <new-output-directory> <heap-MiB> <seconds:60..1800>");
@@ -33,6 +34,7 @@ internal static class Program
             string output = Path.GetFullPath(args[4]);
             if (!File.Exists(archive) || !File.Exists(java) || !File.Exists(host)) throw new FileNotFoundException("An input file is missing.");
             if (Path.Exists(output)) throw new IOException("Output directory must not exist. User game directories are never reused.");
+            Console.WriteLine("Benchmark stage: inputs validated; registering cancellation.");
             using var stop = new CancellationTokenSource(TimeSpan.FromHours(1));
             ConsoleCancelEventHandler cancel = (_, e) => { e.Cancel = true; stop.Cancel(); };
             Console.CancelKeyPress += cancel;
