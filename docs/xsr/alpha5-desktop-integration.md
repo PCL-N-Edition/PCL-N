@@ -110,6 +110,12 @@ JAR 拖入读取归档内容，不按文件名推断加载器版本。用途由�
 运行状态携带规范化完整实例目录；JAR 修改以该目录比较身份，不以裸版本 ID 阻止其他根目录。
 受支持的本地加载器安装器复用现有隔离安装流程；安装器在明确确认后才允许执行。
 
+OptiFine 本地识别要求存在 `optifine/Installer.class`，静态读取 `net/optifine/Config.class`
+或旧版 `Config.class` 的 `MC_VERSION`、`OF_EDITION`、`OF_RELEASE` 字符串常量。
+按 JVM class ConstantValue 格式读取，不扫描任意字符串、不从文件名猜测、不执行类初始化。
+类文件使用 4 MiB 实际读取预算；识别后仍经原有 SHA-256 重检和隔离安装服务。
+格式依据：[JVM class 文件规范 §4.4、§4.5、§4.7.2](https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-4.html)。
+
 ## MRPACK 与 CurseForge ZIP
 
 任务中心在业务锁内给每次登记分配 generation、每次更新递增 revision，并同时入队。

@@ -78,40 +78,47 @@ internal static partial class Program
     private static async ValueTask AdditionalInstallersUseStagingAndPropagateFailure()
     {
         foreach (var loader in new[] { InstallLoader.Cleanroom, InstallLoader.OptiFine })
-            foreach (bool fail in new[] { false, true })
-            {
-                string root = CreateTempDirectory();
-                try
+            foreach (bool local in new[] { false, true })
+                foreach (bool fail in new[] { false, true })
                 {
-                    Directory.CreateDirectory(Path.Combine(root, "versions", "1.12.2"));
-                    await File.WriteAllTextAsync(Path.Combine(root, "versions", "1.12.2", "1.12.2.jar"), "client");
-                    var manifest = new JsonObject { ["id"] = "generated", ["mainClass"] = "bootstrap.Main", ["inheritsFrom"] = "1.12.2" };
-                    byte[] archive = InstallerFixtureArchive(manifest);
-                    string sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(archive));
-                    using var http = new HttpClient(new StaticHttpMessageHandler("{\"assets\":[{\"name\":\"cleanroom-0.6-installer.jar\",\"digest\":\"sha256:" + sha + "\"}]}"));
-                    XsrStateStoreBuilder builder = new(); DownloadService.DeclareState(builder);
-                    bool ran = false;
-                    var service = new ForgeInstallService(new DownloadService(builder.Build()), http, _ => new ServingConnection(archive), (_, _) => Task.FromResult("java"), async (start, token) =>
+                    string root = CreateTempDirectory();
+                    try
                     {
-                        ran = true; AssertTrue(start.CreateNoWindow); AssertFalse(start.UseShellExecute);
-                        AssertEqual(start.WorkingDirectory, start.ArgumentList[^1]);
-                        if (loader == InstallLoader.OptiFine)
+                        Directory.CreateDirectory(Path.Combine(root, "versions", "1.12.2"));
+                        await File.WriteAllTextAsync(Path.Combine(root, "versions", "1.12.2", "1.12.2.jar"), "client");
+                        var manifest = new JsonObject { ["id"] = "generated", ["mainClass"] = "bootstrap.Main", ["inheritsFrom"] = "1.12.2" };
+                        byte[] archive = InstallerFixtureArchive(manifest);
+                        string sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(archive));
+                        using var http = new HttpClient(new StaticHttpMessageHandler("{\"assets\":[{\"name\":\"cleanroom-0.6-installer.jar\",\"digest\":\"sha256:" + sha + "\"}]}"));
+                        XsrStateStoreBuilder builder = new(); DownloadService.DeclareState(builder);
+                        bool ran = false;
+                        var service = new ForgeInstallService(new DownloadService(builder.Build()), http,
+                            _ => local ? throw new InvalidOperationException("Local installer must not be downloaded.") : new ServingConnection(archive), (_, _) => Task.FromResult("java"), async (start, token) =>
                         {
-                            AssertTrue(start.ArgumentList[^2].EndsWith("NexaOptiFineInstall.java", StringComparison.Ordinal));
-                            AssertTrue((await File.ReadAllTextAsync(start.ArgumentList[^2], token)).Contains("doInstall", StringComparison.Ordinal));
-                        }
-                        if (fail) throw new IOException("processor failed");
-                        string target = Path.Combine(start.WorkingDirectory, "versions", "generated"); Directory.CreateDirectory(target);
-                        await File.WriteAllTextAsync(Path.Combine(target, "generated.json"), manifest.ToJsonString(), token);
-                    });
-                    bool rejected = false;
-                    try { await service.InstallAsync(new(root, "1.12.2", "custom", loader, loader == InstallLoader.Cleanroom ? "0.6" : "1.12.2_HD_U_G5", new()), null, CancellationToken.None); }
-                    catch (IOException) { rejected = true; }
-                    AssertEqual(fail, rejected); AssertTrue(ran);
-                    AssertFalse(Directory.Exists(Path.Combine(root, "versions", "custom")));
-                    AssertEqual(0, Directory.GetDirectories(Path.Combine(root, ".nexa-install")).Length);
+                            ran = true; AssertTrue(start.CreateNoWindow); AssertFalse(start.UseShellExecute);
+                            AssertEqual(start.WorkingDirectory, start.ArgumentList[^1]);
+                            if (loader == InstallLoader.OptiFine)
+                            {
+                                AssertTrue(start.ArgumentList[^2].EndsWith("NexaOptiFineInstall.java", StringComparison.Ordinal));
+                                AssertTrue((await File.ReadAllTextAsync(start.ArgumentList[^2], token)).Contains("doInstall", StringComparison.Ordinal));
+                            }
+                            if (fail) throw new IOException("processor failed");
+                            string target = Path.Combine(start.WorkingDirectory, "versions", "generated"); Directory.CreateDirectory(target);
+                            await File.WriteAllTextAsync(Path.Combine(target, "generated.json"), manifest.ToJsonString(), token);
+                        });
+                        string build = loader == InstallLoader.Cleanroom ? "0.6" : "1.12.2_HD_U_G5";
+                        string localPath = Path.Combine(root, "local.jar");
+                        if (local) await File.WriteAllBytesAsync(localPath, archive);
+                        var request = new MinecraftLoaderInstallRequest(root, "1.12.2", "custom", loader, build, new())
+                        { LocalInstaller = local ? new(localPath, sha, "1.12.2", loader, build) : null };
+                        bool rejected = false;
+                        try { await service.InstallAsync(request, null, CancellationToken.None); }
+                        catch (IOException) { rejected = true; }
+                        AssertEqual(fail, rejected); AssertTrue(ran);
+                        AssertFalse(Directory.Exists(Path.Combine(root, "versions", "custom")));
+                        AssertEqual(0, Directory.GetDirectories(Path.Combine(root, ".nexa-install")).Length);
+                    }
+                    finally { Directory.Delete(root, true); }
                 }
-                finally { Directory.Delete(root, true); }
-            }
     }
 }

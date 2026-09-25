@@ -55,6 +55,18 @@ public sealed class MinecraftLocalJarService(TaskCenterService tasks, XsrStateSt
                 if (game is not null && build.StartsWith(game + "-", StringComparison.Ordinal)) build = build[(game.Length + 1)..];
             }
         }
+        if (loader is null && archive.GetEntry("optifine/Installer.class") is not null
+            && (archive.GetEntry("net/optifine/Config.class") ?? archive.GetEntry("Config.class")) is { } config)
+        {
+            await using var input = config.Open();
+            using var buffer = new MemoryStream();
+            await ArchiveReadBudget.CopyAsync(input, buffer, config.Length, 4 * 1024 * 1024,
+                new ArchiveReadBudget(4 * 1024 * 1024), token).ConfigureAwait(false);
+            if (OptiFineInstallerMetadata.Read(buffer.ToArray()) is { } metadata)
+            {
+                game = metadata.Game; build = metadata.Build; loader = InstallLoader.OptiFine;
+            }
+        }
         return new LocalJarArtifact(path, hash, game, loader, build);
     }, token);
 

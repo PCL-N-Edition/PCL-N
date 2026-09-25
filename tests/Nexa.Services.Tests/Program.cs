@@ -4,6 +4,7 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("local OptiFine uses static field constants", LocalOptiFineUsesFieldConstants),
         ("resource history requires matching persisted settings", Sync(ResourceHistoryRequiresMatchingPersistedSettings)),
         ("resource history requires matching mod identities", Sync(ResourceHistoryRequiresMatchingModIdentity)),
         ("host history rejects unsuitable runs and preserves peak semantics", Sync(HostHistoryAdmissionPreservesPeakSemantics)),
