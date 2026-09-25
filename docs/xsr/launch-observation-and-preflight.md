@@ -14,24 +14,23 @@ looks similar. Different roots with the same instance name remain different scop
 necessary boundary, not proof of configuration equivalence: mod/settings fingerprints and workload
 matching remain required for a reliable learned model.
 
-History now additionally requires an exact, versioned enabled-mod metadata fingerprint. It includes
-IDs, versions, metadata formats and sorted dependency declarations; enumeration order is irrelevant.
-Incomplete inventories, unknown versions or incomplete dependencies cannot supply this fingerprint.
-The host reuses its bounded context scan and the capability provider uses the same reader. Legacy
-history without a fingerprint cannot calibrate. This prevents equal-count mod replacements from
-matching; it does not verify JAR content, runtime activation, configuration or workload equivalence.
+History requires an exact versioned enabled-mod content fingerprint. It includes IDs, versions,
+metadata formats, dependency declarations, content SHA-256 and nested-candidate status. Incomplete
+inventories, unknown versions or incomplete dependencies cannot supply this fingerprint. The host
+checks the inventory again before recording history. Legacy fingerprints do not calibrate new runs.
+This identifies inspected content, not the loader's actual resolved/activated mod set.
 
-The persisted options.txt content must also match exactly, using a local SHA-256 fingerprint of
-at most 64 KiB of actual bytes. Missing, unreadable or oversized settings cannot match. The host
-checks this fingerprint at observation start, window boundaries and exit; an observed change
-disqualifies the run. No file content or fingerprint is added to remote telemetry. This covers
-persisted game options, not arbitrary mod configuration, runtime application of settings or worlds.
+The local configuration fingerprint covers options.txt plus config/defaultconfigs/scripts/kubejs.
+Reads, counts and depths are bounded; links, changing file sets or unreadable/oversized content make
+history ineligible. The host checks at observation start, window boundaries and exit. No file content
+or fingerprint is added to remote telemetry. This does not prove the game applied settings or that
+two sessions used the same world/workload. See `mod-content-calibration.md` for exact limits.
 
 Host history admission requires a normal exit (code zero), at least 60 seconds and 30 successful
 observations, uninterrupted sampling, no observed settings changes (including the final read), and
 no session crash evidence. Rejected runs remain diagnostic observations but do not calibrate the
 local estimator. Store the measured working-set peak as PhysicalPeakMiB, never its temporal P95.
-This gate does not establish world readiness or matching mod/configuration fingerprints.
+This gate does not establish world readiness or workload equivalence.
 
 ## Observation contract
 
@@ -58,8 +57,9 @@ is not concealed as continuous measurement. Configuration epochs refer to persis
 observed at window boundaries, not exact in-game application timestamps.
 
 `diagnostic.mods` contains paged metadata IDs/versions, enabled state, source format and bounded
-dependency declarations. Fabric string dependencies are parsed; TOML/Quilt/legacy formats
-are explicitly partial. Nested JARs are not recursively loaded and lower completeness.
+dependency declarations. Fabric dependencies and simple Quilt declarations are parsed; complex Quilt/TOML/legacy forms
+remain explicitly partial. Fabric, Quilt and Forge/NeoForge JarJar nested archives are inspected
+within shared byte/depth/count budgets. They are candidates, not proof of runtime activation.
 Unknown substitutions such as `${file.jarVersion}` remain unknown. Component versions reuse
 the install-edit reader, and include addon selections. No filename heuristic creates verified
 compatibility. Metadata is inspected after spawning on a bounded background task; it describes
