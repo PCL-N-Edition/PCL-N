@@ -22,13 +22,15 @@ public sealed partial class SidecarHostSession : IDisposable
     private Guid _sessionId;
     private SidecarRegistrationSet? _registration;
     private SidecarStateMirror? _mirror;
+    private readonly SidecarSessionLimits _limits;
 
     public SidecarHostSession(
         SidecarConnection connection,
         string pluginName,
         ISidecarSessionObserver? observer = null,
         TimeProvider? timeProvider = null,
-        int maxPending = 1024)
+        int maxPending = 1024,
+        SidecarSessionLimits? limits = null)
     {
         _connection = connection ?? throw new ArgumentNullException(nameof(connection));
         ArgumentException.ThrowIfNullOrWhiteSpace(pluginName);
@@ -36,6 +38,9 @@ public sealed partial class SidecarHostSession : IDisposable
         _observer = observer;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _maxPending = maxPending;
+        _limits = limits ?? new();
+        _limits.Validate();
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxPending);
     }
 
     public string PluginName { get; }
@@ -72,7 +77,7 @@ public sealed partial class SidecarHostSession : IDisposable
     /// Gets the content cache populated at registration: UI modules and resources are served
     /// from here with zero IPC.
     /// </summary>
-    public SidecarHostCache Cache { get; } = new();
+    public SidecarHostCache Cache { get; private set; } = new();
 
     /// <summary>
     /// Sends HELLO and awaits WELCOME, enforcing the negotiated protocol version.
@@ -109,12 +114,24 @@ public sealed partial class SidecarHostSession : IDisposable
     /// </summary>
     public async ValueTask<SidecarStateMirror> AcceptRegistrationAsync(CancellationToken cancellationToken = default)
     {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(_limits.RegistrationTimeout);
+        try { return await AcceptRegistrationCoreAsync(deadline.Token).ConfigureAwait(false); }
+        catch (Exception error) when (error is IOException or ArgumentException or OperationCanceledException or SidecarProtocolException)
+        { throw Fail("Sidecar registration failed or exceeded its budget."); }
+    }
+
+    private async ValueTask<SidecarStateMirror> AcceptRegistrationCoreAsync(CancellationToken cancellationToken)
+    {
         ThrowState(SidecarSessionState.Registering);
 
         SidecarFrame begin = await ReceiveOrFail(
             SidecarMessageType.RegisterBegin,
             cancellationToken).ConfigureAwait(false);
         uint count = SidecarRegistration.DecodeBegin(begin.Payload.Span);
+        if (count > _limits.MaximumItems) throw Fail("Sidecar registration item budget exceeded.");
+        long remaining = _limits.MaximumRegistrationBytes;
+        ConsumeBudget(ref remaining, begin);
         List<SidecarRegistrationEntry> entries = new((int)count);
         Dictionary<XsrSemanticId, SidecarRegistrationItem> declarations = [];
         Dictionary<SidecarRegistrationKind, uint> ordinals = [];
@@ -124,9 +141,11 @@ public sealed partial class SidecarHostSession : IDisposable
             SidecarFrame itemFrame = await ReceiveOrFail(
                 SidecarMessageType.RegisterItem,
                 cancellationToken).ConfigureAwait(false);
+            ConsumeBudget(ref remaining, itemFrame);
             SidecarRegistrationItem item = SidecarRegistration.DecodeItem(itemFrame.Payload.Span);
+            if (item.SemanticId.Length > _limits.MaximumSemanticIdCharacters) throw Fail("Sidecar semantic ID budget exceeded.");
             XsrSemanticId semantic = XsrSemanticId.Parse(item.SemanticId);
-            if (entries.Any(entry => entry.SemanticId.Equals(semantic)))
+            if (declarations.ContainsKey(semantic))
             {
                 throw Fail($"The sidecar registered '{semantic}' twice.");
             }
@@ -137,7 +156,7 @@ public sealed partial class SidecarHostSession : IDisposable
             entries.Add(new SidecarRegistrationEntry(item.Kind, semantic, contractId, item.Flags, item.CodecId));
         }
 
-        _ = await ReceiveOrFail(SidecarMessageType.RegisterEnd, cancellationToken).ConfigureAwait(false);
+        ConsumeBudget(ref remaining, await ReceiveOrFail(SidecarMessageType.RegisterEnd, cancellationToken).ConfigureAwait(false));
 
         // Registration is the capability boundary AND the content transfer: UI modules and
         // resources carry their payload inline, verified and cached here so later opens read
@@ -145,16 +164,19 @@ public sealed partial class SidecarHostSession : IDisposable
         // rejected.
         foreach (SidecarRegistrationEntry entry in entries)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (entry.Kind == SidecarRegistrationKind.UiModule)
             {
                 SidecarRegistrationItem declaration = declarations[entry.SemanticId];
-                foreach (string required in declaration.RequiredResources?
-                             .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                         ?? [])
+                string[] references = declaration.RequiredResources?
+                    .Split(';', _limits.MaximumItems + 1, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [];
+                if (references.Length > _limits.MaximumItems) throw Fail("Sidecar resource reference budget exceeded.");
+                foreach (string required in references)
                 {
-                    if (!entries.Any(candidate =>
-                            candidate.Kind == SidecarRegistrationKind.Resource
-                            && candidate.SemanticId.Equals(XsrSemanticId.Parse(required))))
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (required.Length > _limits.MaximumSemanticIdCharacters
+                        || !declarations.TryGetValue(XsrSemanticId.Parse(required), out var resource)
+                        || resource.Kind != SidecarRegistrationKind.Resource)
                     {
                         throw Fail(
                             $"The UI module '{entry.SemanticId}' references missing resource '{required}'.");
@@ -163,24 +185,30 @@ public sealed partial class SidecarHostSession : IDisposable
             }
         }
 
-        _registration = new SidecarRegistrationSet(entries);
-        _mirror = SidecarStateMirror.Create(
+        var registration = new SidecarRegistrationSet(entries);
+        var mirror = SidecarStateMirror.Create(
             PluginName,
             entries.Where(entry => entry.Kind == SidecarRegistrationKind.State).ToList());
+        var cache = new SidecarHostCache();
         foreach (SidecarRegistrationEntry entry in entries)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             SidecarRegistrationItem declaration = declarations[entry.SemanticId];
             if (entry.Kind == SidecarRegistrationKind.UiModule && declaration.Payload is { } module)
             {
-                Cache.AddUiModule(entry.SemanticId, module, declaration.ContentHash!);
+                cache.AddUiModule(entry.SemanticId, module, declaration.ContentHash!);
             }
             else if (entry.Kind == SidecarRegistrationKind.Resource && declaration.Payload is { } resource)
             {
-                Cache.AddResource(entry.SemanticId, resource, declaration.ContentHash!);
+                cache.AddResource(entry.SemanticId, resource, declaration.ContentHash!);
             }
         }
 
-        return _mirror;
+        cancellationToken.ThrowIfCancellationRequested();
+        _registration = registration;
+        _mirror = mirror;
+        Cache = cache;
+        return mirror;
     }
 
     /// <summary>
@@ -189,6 +217,15 @@ public sealed partial class SidecarHostSession : IDisposable
     /// marker. Only after this returns is the mirror coherent and the session ready to activate.
     /// </summary>
     public async ValueTask AcceptStateSnapshotAsync(CancellationToken cancellationToken = default)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(_limits.RegistrationTimeout);
+        try { await AcceptStateSnapshotCoreAsync(deadline.Token).ConfigureAwait(false); }
+        catch (Exception error) when (error is IOException or ArgumentException or OperationCanceledException or SidecarProtocolException)
+        { throw Fail("Sidecar snapshot failed or exceeded its budget."); }
+    }
+
+    private async ValueTask AcceptStateSnapshotCoreAsync(CancellationToken cancellationToken)
     {
         ThrowState(SidecarSessionState.Registering);
         if (_mirror is null || _registration is null)
@@ -204,6 +241,9 @@ public sealed partial class SidecarHostSession : IDisposable
             .Where(entry => entry.Kind == SidecarRegistrationKind.State)
             .ToList();
         Dictionary<uint, (SidecarRegistrationEntry Entry, byte[] EncodedValue)> collected = [];
+        if (count != stateEntries.Count) throw Fail("Sidecar snapshot count does not match registration.");
+        long remaining = _limits.MaximumSnapshotBytes;
+        ConsumeBudget(ref remaining, begin);
 
         // Collect and validate the whole snapshot before touching the mirror: unknown
         // contracts, duplicates, missing states, and codec mismatches all fail the session
@@ -216,6 +256,7 @@ public sealed partial class SidecarHostSession : IDisposable
                 SidecarFrame itemFrame = await ReceiveOrFail(
                     SidecarMessageType.StateSnapshotItem,
                     cancellationToken).ConfigureAwait(false);
+                ConsumeBudget(ref remaining, itemFrame);
                 (uint contractId, byte[] encodedValue) = SidecarStateSnapshot.DecodeItem(itemFrame.Payload.Span);
                 SidecarRegistrationEntry? entry = stateEntries.FirstOrDefault(
                     candidate => candidate.ContractId == contractId);
@@ -241,8 +282,8 @@ public sealed partial class SidecarHostSession : IDisposable
                 collected[contractId] = (entry, encodedValue);
             }
 
-            _ = await ReceiveOrFail(SidecarMessageType.StateSnapshotEnd, cancellationToken)
-                .ConfigureAwait(false);
+            ConsumeBudget(ref remaining, await ReceiveOrFail(SidecarMessageType.StateSnapshotEnd, cancellationToken)
+                .ConfigureAwait(false));
 
             if (collected.Count != stateEntries.Count)
             {
@@ -320,18 +361,31 @@ public sealed partial class SidecarHostSession : IDisposable
     /// </summary>
     public async ValueTask ShutdownAsync(CancellationToken cancellationToken = default)
     {
-        await _connection.SendAsync(new SidecarFrame(
-            SidecarProtocol.Version,
-            SidecarMessageType.Shutdown,
-            SidecarFrameTraits.Final,
-            SidecarCorrelationId.Create(),
-            Array.Empty<byte>()),
-            cancellationToken).ConfigureAwait(false);
-        Transition(SidecarSessionState.Closed);
-        _connection.Close();
+        EndPending();
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromMilliseconds(100));
+        try
+        {
+            await _connection.SendAsync(new SidecarFrame(
+                SidecarProtocol.Version,
+                SidecarMessageType.Shutdown,
+                SidecarFrameTraits.Final,
+                SidecarCorrelationId.Create(),
+                Array.Empty<byte>()),
+                deadline.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            Transition(SidecarSessionState.Closed);
+            _connection.Close();
+        }
     }
 
-    public void Dispose() => _connection.Dispose();
+    public void Dispose()
+    {
+        EndPending();
+        _connection.Dispose();
+    }
 
     private async ValueTask<SidecarFrame> ReceiveOrFail(
         SidecarMessageType expected,
@@ -371,6 +425,7 @@ public sealed partial class SidecarHostSession : IDisposable
             _failureReason = message;
         }
 
+        EndPending();
         Transition(SidecarSessionState.Failed);
         _connection.Close();
         return new SidecarProtocolException(message);
@@ -390,5 +445,11 @@ public sealed partial class SidecarHostSession : IDisposable
             throw new InvalidOperationException(
                 $"The sidecar session is {state}; this operation requires {expected}.");
         }
+    }
+
+    private void ConsumeBudget(ref long remaining, SidecarFrame frame)
+    {
+        if (frame.Payload.Length > remaining) throw Fail("Sidecar transfer byte budget exceeded.");
+        remaining -= frame.Payload.Length;
     }
 }

@@ -269,9 +269,9 @@ internal static partial class Program
     private static readonly byte[] RegisterEndPayload = [];
 
     private static async ValueTask<(SidecarHostSession, SidecarConnection, SidecarStateMirror, Task)> ActivatedSession(
-        int maxPending = 1024)
+        int maxPending = 1024, Func<Stream, Stream>? wrap = null)
     {
-        (SidecarHostSession session, SidecarConnection plugin) = await HandshakeAndRegister(maxPending);
+        (SidecarHostSession session, SidecarConnection plugin) = await HandshakeAndRegister(maxPending, wrap);
         await SnapshotAndReady(session, plugin);
         await session.ActivateAsync();
         await DataPlaneReceiveAsync(plugin); // drain the ACTIVATE frame
@@ -314,11 +314,11 @@ internal static partial class Program
     }
 
     private static async ValueTask<(SidecarHostSession, SidecarConnection)> HandshakeAndRegister(
-        int maxPending = 1024)
+        int maxPending = 1024, Func<Stream, Stream>? wrap = null)
     {
         (SidecarLoopbackStream hostStream, SidecarLoopbackStream pluginStream) =
             SidecarLoopbackStream.CreatePair();
-        SidecarConnection hostConnection = new(hostStream);
+        SidecarConnection hostConnection = new(wrap?.Invoke(hostStream) ?? hostStream);
         SidecarConnection pluginConnection = new(pluginStream);
         SidecarHostSession session = new(hostConnection, "TestPlugin", maxPending: maxPending);
         await CompleteHandshake(session, pluginConnection);

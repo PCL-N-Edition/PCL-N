@@ -7,6 +7,7 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("Unix listener preserves unowned paths", UnixListenerPreservesUnownedPaths),
         // XSR-401: Sidecar protocol surface.
         ("frames round trip header and payload", Sync(FrameRoundTripsHeaderAndPayload)),
         ("payload fields round trip every type", Sync(PayloadFieldsRoundTripEveryType)),

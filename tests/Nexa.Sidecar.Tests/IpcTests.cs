@@ -5,6 +5,27 @@ namespace Nexa.Sidecar.Tests;
 
 internal static partial class Program
 {
+    private static ValueTask UnixListenerPreservesUnownedPaths()
+    {
+        if (OperatingSystem.IsWindows()) return ValueTask.CompletedTask;
+        string sentinel = Path.Combine(Path.GetTempPath(), "nexa-ipc-sentinel-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            File.WriteAllText(sentinel, "user-owned");
+            string endpoint;
+            using (var listener = SidecarIpcListener.Bind(sentinel))
+            {
+                endpoint = listener.Endpoint;
+                AssertTrue(endpoint != sentinel);
+                AssertEqual("user-owned", File.ReadAllText(sentinel));
+            }
+            AssertEqual("user-owned", File.ReadAllText(sentinel));
+            AssertFalse(File.Exists(endpoint));
+        }
+        finally { File.Delete(sentinel); }
+        return ValueTask.CompletedTask;
+    }
+
     private static async ValueTask IpcStreamRoundTripsFrames()
     {
         if (!SidecarIpcListener.IsSupported)

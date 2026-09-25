@@ -16,7 +16,8 @@ namespace Nexa.Xsr.Runtime;
 public sealed partial class SidecarHostSession
 {
     private readonly Dictionary<Guid, TaskCompletionSource<SidecarExchangeOutcome>> _pending = [];
-    private readonly object _pendingGate = new();
+    private readonly CancellationTokenSource _sessionEnded = new();
+    private bool _stopped;
     private readonly int _maxPending;
     private ISidecarSessionEventObserver? _eventObserver;
 
@@ -27,7 +28,7 @@ public sealed partial class SidecarHostSession
     {
         get
         {
-            lock (_pendingGate)
+            lock (_gate)
             {
                 return _pending.Count;
             }
@@ -105,6 +106,13 @@ public sealed partial class SidecarHostSession
     /// </summary>
     public async ValueTask RunReceiveLoopAsync(CancellationToken cancellationToken = default)
     {
+        try { await RunReceiveLoopCoreAsync(cancellationToken).ConfigureAwait(false); }
+        catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)
+        { FailWithMirrorUnavailable("The sidecar receive loop terminated."); }
+    }
+
+    private async ValueTask RunReceiveLoopCoreAsync(CancellationToken cancellationToken)
+    {
         while (true)
         {
             SidecarFrame frame;
@@ -134,6 +142,7 @@ public sealed partial class SidecarHostSession
                     return;
                 case SidecarMessageType.Shutdown:
                     Transition(SidecarSessionState.Closed);
+                    EndPending();
                     _connection.Close();
                     return;
                 default:
@@ -153,52 +162,43 @@ public sealed partial class SidecarHostSession
         TimeSpan? timeout,
         CancellationToken cancellationToken)
     {
-        lock (_pendingGate)
-        {
-            if (_pending.Count >= _maxPending)
-            {
-                return SidecarExchangeOutcome.Backpressure();
-            }
-        }
-
+        TimeSpan bounded = timeout ?? TimeSpan.FromSeconds(30);
+        if (bounded <= TimeSpan.Zero) return SidecarExchangeOutcome.TimedOut();
+        using var timeoutSource = new CancellationTokenSource(bounded);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _sessionEnded.Token, timeoutSource.Token);
         SidecarCorrelationId correlation = SidecarCorrelationId.Create();
         TaskCompletionSource<SidecarExchangeOutcome> completion =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
-        lock (_pendingGate)
+        lock (_gate)
         {
+            if (_stopped || _state != SidecarSessionState.Active) return UnavailableExchange();
+            if (_pending.Count >= _maxPending) return SidecarExchangeOutcome.Backpressure();
             _pending[correlation.Value] = completion;
         }
-
-        await _connection.SendAsync(new SidecarFrame(
-            SidecarProtocol.Version,
-            requestType,
-            SidecarFrameTraits.None,
-            correlation,
-            SidecarDataPlane.EncodeRequest(entry.ContractId, argument)),
-            CancellationToken.None).ConfigureAwait(false);
-
+        bool sent = false;
         try
         {
-            Task<SidecarExchangeOutcome> wait = completion.Task;
-            if (timeout is { } bounded)
+            await _connection.SendAsync(new SidecarFrame(SidecarProtocol.Version, requestType,
+                SidecarFrameTraits.None, correlation, SidecarDataPlane.EncodeRequest(entry.ContractId, argument)),
+                deadline.Token).ConfigureAwait(false);
+            sent = true;
+            return await completion.Task.WaitAsync(deadline.Token).ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)
+        {
+            bool expired = timeoutSource.IsCancellationRequested || cancellationToken.IsCancellationRequested;
+            bool stopped = _sessionEnded.IsCancellationRequested;
+            if ((!sent && error is not OperationCanceledException) || (sent && !expired))
+                FailWithMirrorUnavailable("The sidecar exchange could not be transmitted or completed.");
+            else if (sent && !stopped)
             {
-                wait = wait.WaitAsync(bounded, CancellationToken.None);
+                using var cancelDeadline = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+                await SendCancelAsync(correlation, "host exchange ended", cancelDeadline.Token).ConfigureAwait(false);
             }
-
-            return await wait.WaitAsync(cancellationToken).ConfigureAwait(false);
+            if (cancellationToken.IsCancellationRequested) return SidecarExchangeOutcome.Cancelled();
+            return timeoutSource.IsCancellationRequested ? SidecarExchangeOutcome.TimedOut() : UnavailableExchange();
         }
-        catch (TimeoutException)
-        {
-            RemovePending(correlation.Value);
-            await SendCancelAsync(correlation, "host timeout", CancellationToken.None).ConfigureAwait(false);
-            return SidecarExchangeOutcome.TimedOut();
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            RemovePending(correlation.Value);
-            await SendCancelAsync(correlation, "host cancelled", CancellationToken.None).ConfigureAwait(false);
-            return SidecarExchangeOutcome.Cancelled();
-        }
+        finally { RemovePending(correlation.Value); }
     }
 
     /// <summary>
@@ -222,7 +222,7 @@ public sealed partial class SidecarHostSession
         }
         catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
         {
-            // A failed cancel delivery never changes the caller's outcome.
+            FailWithMirrorUnavailable("The sidecar cancellation could not be delivered.");
         }
     }
 
@@ -289,7 +289,7 @@ public sealed partial class SidecarHostSession
 
     private bool RemovePending(Guid correlation)
     {
-        lock (_pendingGate)
+        lock (_gate)
         {
             return _pending.Remove(correlation);
         }
@@ -298,7 +298,7 @@ public sealed partial class SidecarHostSession
     private void CompletePending(Guid correlation, SidecarExchangeOutcome outcome)
     {
         TaskCompletionSource<SidecarExchangeOutcome>? completion;
-        lock (_pendingGate)
+        lock (_gate)
         {
             if (!_pending.Remove(correlation, out completion))
             {
@@ -320,6 +320,22 @@ public sealed partial class SidecarHostSession
             XsrErrorKind.Rejected,
             XsrSemanticId.Parse(outcome.ErrorCode.Length == 0 ? "xsr.handler_faulted" : outcome.ErrorCode),
             "The sidecar rejected the exchange."));
+    }
+
+    private static SidecarExchangeOutcome UnavailableExchange() => new(false, string.Empty, "xsr.unavailable");
+
+    private void EndPending()
+    {
+        TaskCompletionSource<SidecarExchangeOutcome>[] pending;
+        lock (_gate)
+        {
+            if (_stopped) return;
+            _stopped = true;
+            pending = _pending.Values.ToArray();
+            _pending.Clear();
+        }
+        foreach (var completion in pending) completion.TrySetResult(UnavailableExchange());
+        _sessionEnded.Cancel();
     }
 }
 

@@ -1,5 +1,23 @@
 # XSR Sidecar Fabric v2
 
+## Host resource admission (SEC-04)
+
+Registration defaults to at most 4096 items, 256 characters per semantic identifier and
+32 MiB of aggregate frame payloads. The initial state snapshot has an independent 32 MiB
+budget and must declare exactly the registered state count. Each phase has a 30-second
+deadline. Host composition may supply smaller budgets; a peer cannot increase them.
+Limits are checked before item decoding or count-based allocation. Invalid, canceled or
+over-budget registration terminates the session without publishing a partial cache/mirror.
+
+Exchanges admit and register under the lifecycle lock. Their deadline includes transmission
+and response (30 seconds by default). A response-wait timeout retains its stable timeout
+result; the cancel notification has an independent 100 ms best-effort budget. Interrupted
+frame writes poison the connection. Pre-canceled or write-lock-wait cancellation does not
+poison an otherwise unused transport. Every terminal session path rejects admission and
+completes all pending exchanges. Stopping the receive loop also ends its session.
+Unix listener creation and disposal only touch its private generated socket directory;
+the caller's logical pipe name is never treated as a file to delete.
+
 ## Purpose
 
 The Sidecar is a dynamic plugin code-execution engine, not a remote object graph or Host UI process.

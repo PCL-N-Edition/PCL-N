@@ -47,8 +47,18 @@ public sealed class SidecarFrameTransport : IDisposable
         await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await _stream.WriteAsync(wire, cancellationToken).ConfigureAwait(false);
-            await _stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                await _stream.WriteAsync(wire, cancellationToken).ConfigureAwait(false);
+                await _stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException error)
+            {
+                // A partial frame cannot be resumed or followed by another frame safely.
+                _stream.Close();
+                throw new IOException("The sidecar frame write was interrupted.", error);
+            }
         }
         finally
         {

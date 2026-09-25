@@ -120,17 +120,6 @@ public sealed class SidecarIpcListener : IDisposable
     [SupportedOSPlatform("macos")]
     private void BindUnix()
     {
-        try
-        {
-            if (File.Exists(_pipeName))
-            {
-                File.Delete(_pipeName);
-            }
-        }
-        catch (IOException)
-        {
-        }
-
         string socketPath = SocketPath;
         _unixSocket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
         _unixSocket.Bind(new UnixDomainSocketEndPoint(socketPath));

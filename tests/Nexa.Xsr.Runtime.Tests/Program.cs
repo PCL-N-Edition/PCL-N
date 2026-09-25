@@ -4,6 +4,12 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("sidecar unsent cancellation preserves other requests", SidecarUnsentCancellationPreservesOtherRequests),
+        ("sidecar deadlines include blocked writes", SidecarDeadlinesIncludeBlockedWrites),
+        ("sidecar terminal paths complete all pending", SidecarTerminalPathsCompleteAllPending),
+        ("sidecar concurrent admission respects capacity", SidecarConcurrentAdmissionRespectsCapacity),
+        ("sidecar registration rejects unbounded input", SidecarRegistrationRejectsUnboundedInput),
+        ("sidecar snapshot has independent budget", SidecarSnapshotHasIndependentBudget),
         ("semantic identifiers validate without normalization", Sync(SemanticIdentifiersValidateWithoutNormalization)),
         ("runtime identifier zero remains reserved", Sync(RuntimeIdentifierZeroRemainsReserved)),
         ("registry assigns deterministic runtime identifiers", Sync(RegistryAssignsDeterministicRuntimeIdentifiers)),
