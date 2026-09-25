@@ -227,6 +227,7 @@ public sealed class LoaderCapabilityProvider(string? minecraftRootDirectory) : I
             : null;
         string? loaderVersion = loader.Version ?? heuristicVersion;
         bool vanilla = loader.Kind is MinecraftModLoaderKind.Vanilla;
+        bool? compatible = await new InstalledLoaderCompatibility().EvaluateAsync(primary.Manifests, loader, cancellationToken).ConfigureAwait(false);
         // The version reader THROWS on a missing inheritsFrom parent, so reaching here means
         // the chain resolved. Self-contained loader jsons (no inheritsFrom) are complete too —
         // treating them as broken fired LOADER_INCOMPATIBLE on healthy installs.
@@ -241,18 +242,18 @@ public sealed class LoaderCapabilityProvider(string? minecraftRootDirectory) : I
                     heuristicVersion is null ? CapabilityConfidence.High : CapabilityConfidence.Low)
                 : MachineInstanceCatalog.LoaderVersion.Unavailable(CapabilityAvailability.DependencyMissing, timestamp, "加载器版本未知"),
             MachineInstanceCatalog.LoaderComplete.Observe(chainComplete, timestamp, source),
-            // A resolvable chain proves the manifest GRAPH is intact — it says nothing about
-            // whether this loader version supports this Minecraft version. The explicit
-            // range check is the Compatibility Resolver's job; until it exists the fact is
-            // Unknown, never a silent true (Unknown ≠ true is a frozen Registry principle).
-            MachineInstanceCatalog.LoaderMinecraftCompatible.Unavailable(
-                CapabilityAvailability.DependencyMissing, timestamp, "尚未执行加载器↔Minecraft 显式兼容范围检查"),
+            compatible is { } supported
+                ? MachineInstanceCatalog.LoaderMinecraftCompatible.Observe(supported, timestamp, "Loader 官方目录与 Minecraft 本体版本显式校验")
+                : MachineInstanceCatalog.LoaderMinecraftCompatible.Unavailable(
+                    CapabilityAvailability.DependencyMissing, timestamp, "尚无此 Loader 版本支持当前 Minecraft 的可靠目录证据"),
             MachineInstanceCatalog.LoaderChainResolved.Observe(true, timestamp, source),
             MachineInstanceCatalog.LoaderMetadataValid.Observe(true, timestamp, source),
             // derived.* are this provider's own definitions — computing them in place is the
             // ownership-clean path (cross-provider derivations go through the broker pass).
             MachineInstanceCatalog.LoaderDerivedMissing.Observe(false, timestamp, source + "（原版无需加载器；已解析实例未发现缺失要求）"),
-            MachineInstanceCatalog.LoaderDerivedIncompatible.Observe(!vanilla && !chainComplete, timestamp, source),
+            compatible is { } matched
+                ? MachineInstanceCatalog.LoaderDerivedIncompatible.Observe(!matched, timestamp, "Loader 与 Minecraft 显式兼容校验")
+                : MachineInstanceCatalog.LoaderDerivedIncompatible.Unavailable(CapabilityAvailability.DependencyMissing, timestamp, "兼容性尚未确认"),
         });
     }
 
