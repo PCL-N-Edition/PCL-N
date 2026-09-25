@@ -57,6 +57,11 @@ completed (0). Docker now uses `--init`; the entrypoint refuses PID 1 immediatel
 checks actual Xvfb startup in the restricted container before importing a pack. This fixes the
 identified startup structure, but real game/scenario acceptance still requires a successful pilot.
 
+Run 36109059886 passed container display smoke and entered archive/Java inspection, confirming
+the PID 1 fix. Import then failed immediately: the harness had created its output directory but
+not the game root required by the importer's existing-path guard. The harness now creates that
+isolated game root before composing installation; source and target symlink checks stay unchanged.
+
 ## Dataset and runner selection
 
 Maintain a reviewed, versioned pack catalog with provider project/version IDs, archive hashes,

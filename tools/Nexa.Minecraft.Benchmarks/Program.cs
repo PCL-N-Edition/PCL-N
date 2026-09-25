@@ -60,6 +60,8 @@ internal static class Program
             ?? throw new InvalidDataException("Java runtime cannot be inspected.");
         Directory.CreateDirectory(output);
         string root = Path.Combine(output, "game");
+        // Import validates the complete existing root before it creates transaction staging.
+        Directory.CreateDirectory(root);
         var builder = new XsrStateStoreBuilder();
         DownloadService.DeclareState(builder); TaskCenterStateContract.DeclareState(builder); MinecraftProcessStateComposition.DeclareState(builder);
         var store = builder.Build();
