@@ -20,16 +20,27 @@ internal sealed class CloudflareApiClient : IDisposable
     {
         string? path = Environment.GetEnvironmentVariable("NEXA_API_CLIENT_CERT_PATH");
         string? password = Environment.GetEnvironmentVariable("NEXA_API_CLIENT_CERT_PASSWORD");
+        // A launcher started by an existing terminal may inherit an older environment.
+        // Read the explicitly configured user value without copying credentials into the checkout.
+        if (OperatingSystem.IsWindows() && string.IsNullOrWhiteSpace(path))
+        {
+            path = Environment.GetEnvironmentVariable("NEXA_API_CLIENT_CERT_PATH", EnvironmentVariableTarget.User);
+            password ??= Environment.GetEnvironmentVariable("NEXA_API_CLIENT_CERT_PASSWORD", EnvironmentVariableTarget.User);
+        }
         X509Certificate2 certificate;
+        // Windows Schannel cannot use ephemeral PFX private keys (SEC_E_NO_CREDENTIALS).
+        // UserKeySet without PersistKeySet lets certificate disposal clean up imported keys.
+        X509KeyStorageFlags keyStorage = OperatingSystem.IsWindows()
+            ? X509KeyStorageFlags.UserKeySet : X509KeyStorageFlags.EphemeralKeySet;
         if (!string.IsNullOrWhiteSpace(path))
-            certificate = X509CertificateLoader.LoadPkcs12FromFile(path, password, X509KeyStorageFlags.EphemeralKeySet);
+            certificate = X509CertificateLoader.LoadPkcs12FromFile(path, password, keyStorage);
         else
         {
             using var stream = typeof(CloudflareApiClient).Assembly.GetManifestResourceStream("Nexa.Desktop.Assets.api-client.pfx");
             if (stream is null) return null;
             using var buffer = new MemoryStream();
             stream.CopyTo(buffer);
-            certificate = X509CertificateLoader.LoadPkcs12(buffer.ToArray(), password, X509KeyStorageFlags.EphemeralKeySet);
+            certificate = X509CertificateLoader.LoadPkcs12(buffer.ToArray(), password, keyStorage);
         }
         if (!certificate.HasPrivateKey || DateTime.UtcNow < certificate.NotBefore.ToUniversalTime() || DateTime.UtcNow > certificate.NotAfter.ToUniversalTime())
         {

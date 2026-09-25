@@ -10,6 +10,32 @@ namespace Nexa.Services.Tests;
 // consent-gated buffering with bounded eviction, and flush semantics through a transport port.
 internal static partial class Program
 {
+    private static async ValueTask TelemetryTransportReportsBoundedFailures()
+    {
+        using var handler = new DictionaryHandler();
+        using var client = new HttpClient(handler);
+        List<string> failures = [];
+        var transport = new CloudflareTelemetryTransport(client, reportFailure: failures.Add);
+        var properties = new Dictionary<string, string>
+        { ["version"] = "2.0.0.alpha.5", ["os"] = "windows", ["arch"] = "x64", ["result"] = "ok" };
+        var item = new TelemetryEvent("app.started", DateTimeOffset.UtcNow, properties) { Level = TelemetryLevel.Necessary };
+        const string endpoint = "https://api.pcln.top/v2/launcher/telemetry";
+        handler.Serve(endpoint, HttpStatusCode.Forbidden);
+        AssertFalse(await transport.SendAsync([item]));
+        AssertFalse(await transport.SendAsync([item]));
+        AssertEqual(1, failures.Count);
+        AssertTrue(failures[0].Contains("403", StringComparison.Ordinal));
+        handler.Serve(endpoint, HttpStatusCode.NoContent);
+        AssertTrue(await transport.SendAsync([item]));
+        handler.Serve(endpoint, HttpStatusCode.Forbidden);
+        AssertFalse(await transport.SendAsync([item]));
+        AssertEqual(2, failures.Count);
+        properties["token"] = "private-value-must-not-be-logged";
+        AssertFalse(await transport.SendAsync([item]));
+        AssertEqual(3, failures.Count);
+        AssertFalse(failures.Any(message => message.Contains("private-value", StringComparison.Ordinal)));
+    }
+
     private static ValueTask PrereleaseTelemetryCannotBeDisabled()
     {
         foreach (string version in new[] { "2.0.0.alpha.4+abc", "2.0.0.beta.1", "2.0.0.ci.abcdef", "2.0.0" })

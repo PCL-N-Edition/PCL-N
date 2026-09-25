@@ -135,6 +135,7 @@ public sealed partial class LauncherTelemetrySession : IDisposable, IXsrStateObs
 
     private async Task UploadAsync()
     {
+        bool reportedUpload = false;
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
         try
         {
@@ -145,7 +146,14 @@ public sealed partial class LauncherTelemetrySession : IDisposable, IXsrStateObs
                 try
                 {
                     for (int batch = 0; batch < 10; batch++)
+                    {
                         if (await _telemetry.FlushAsync(_transport, _stop.Token).ConfigureAwait(false) == 0) break;
+                        if (!reportedUpload)
+                        {
+                            reportedUpload = true;
+                            _log.Info("Telemetry", "遥测连接已建立，服务器已接受首批事件。");
+                        }
+                    }
                 }
                 catch (OperationCanceledException) { }
                 catch (Exception error) when (error is HttpRequestException or IOException)

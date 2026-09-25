@@ -5,20 +5,29 @@ using System.Text.RegularExpressions;
 namespace Nexa.Services.Telemetry;
 
 /// <summary>Bounded, anonymous facts only. The caller owns the authenticated HTTP client.</summary>
-public sealed partial class CloudflareTelemetryTransport(HttpClient client, Func<bool>? compactBatches = null) : ITelemetryTransport
+public sealed partial class CloudflareTelemetryTransport(HttpClient client, Func<bool>? compactBatches = null,
+    Action<string>? reportFailure = null) : ITelemetryTransport
 {
+    private string? _lastFailure;
     private static readonly string[] CommonKeys = ["version", "os", "arch", "result"];
     public int MaximumBatchSize => compactBatches?.Invoke() == true ? 2 : 4;
 
     public async Task<bool> SendAsync(IReadOnlyList<TelemetryEvent> batch, CancellationToken cancellationToken = default)
     {
-        if (batch.Count > 50 || batch.Any(item => !IsAllowed(item))) return false;
+        if (batch.Count > 50 || batch.Any(item => !IsAllowed(item))) return Failure("遥测批次未发送：事件格式未通过本地校验。");
         using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.pcln.top/v2/launcher/telemetry");
         request.Content = new StringContent(TelemetryService.SerializeBatch(batch), Encoding.UTF8);
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode) return false;
+        if (!response.IsSuccessStatusCode) return Failure($"遥测服务器拒绝批次：HTTP {(int)response.StatusCode}。请检查 API 客户端身份和服务端接入规则。");
+        Interlocked.Exchange(ref _lastFailure, null);
         return true;
+    }
+
+    private bool Failure(string reason)
+    {
+        if (Interlocked.Exchange(ref _lastFailure, reason) != reason) reportFailure?.Invoke(reason);
+        return false;
     }
 
     internal static bool IsAllowed(TelemetryEvent item) =>

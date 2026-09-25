@@ -326,7 +326,8 @@ internal static class Program
 
         using CloudflareApiClient? cloudflare = OpenCloudflareClient(host.Logging);
         using var telemetrySession = cloudflare is null ? null : new Nexa.Services.Telemetry.LauncherTelemetrySession(
-            host.Telemetry, host.Settings, new Nexa.Services.Telemetry.CloudflareTelemetryTransport(cloudflare.Client, () => rollouts.CompactTelemetryBatches), host.Logging, ResolveInformationalVersion());
+            host.Telemetry, host.Settings, new Nexa.Services.Telemetry.CloudflareTelemetryTransport(cloudflare.Client,
+                () => rollouts.CompactTelemetryBatches, reason => host.Logging.Warn("Telemetry", reason)), host.Logging, ResolveInformationalVersion());
         using IDisposable? telemetrySubscription = telemetrySession is null ? null : stateObservation.Subscribe(telemetrySession);
         if (telemetrySession is not null)
         {
@@ -355,7 +356,13 @@ internal static class Program
 
     private static CloudflareApiClient? OpenCloudflareClient(LogService log)
     {
-        try { return CloudflareApiClient.TryCreate(); }
+        try
+        {
+            var client = CloudflareApiClient.TryCreate();
+            if (client is null)
+                log.Warn("Telemetry", "遥测未启动：此构建未包含 API 客户端证书。请通过 NEXA_API_CLIENT_CERT_PATH 配置有效 PFX；需要密码时设置 NEXA_API_CLIENT_CERT_PASSWORD。");
+            return client;
+        }
         catch (Exception error) when (error is IOException or System.Security.Cryptography.CryptographicException or InvalidOperationException)
         {
             log.Warn("Cloudflare", "API 客户端身份不可用，联网服务暂不可用。");

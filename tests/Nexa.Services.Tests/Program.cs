@@ -4,6 +4,7 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("telemetry transport reports bounded failures", TelemetryTransportReportsBoundedFailures),
         ("local OptiFine uses static field constants", LocalOptiFineUsesFieldConstants),
         ("resource history requires matching persisted settings", Sync(ResourceHistoryRequiresMatchingPersistedSettings)),
         ("resource history requires matching mod identities", Sync(ResourceHistoryRequiresMatchingModIdentity)),
