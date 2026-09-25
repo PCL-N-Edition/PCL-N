@@ -27,6 +27,7 @@ public sealed record MinecraftInstallCommand(
     public LocalJarArtifact? LocalInstaller { get; init; }
     internal bool PreparingEdit { get; init; }
     internal string? ModsRelativeDirectory { get; init; }
+    public bool? InheritVanilla { get; init; }
 }
 
 public sealed record MinecraftInstallResult(string InstanceId, string InstanceDirectory);
@@ -66,6 +67,7 @@ public sealed partial class MinecraftInstallService : IDisposable
     private readonly IMinecraftInstallMetadataSource _metadata;
     private readonly Func<string, IDownloadConnection>? _connectionFactory;
     private readonly IMinecraftLoaderInstaller _loaderInstaller;
+    private readonly Func<bool>? _inheritVanilla;
 
     public MinecraftInstallService(
         TaskCenterService tasks,
@@ -74,7 +76,8 @@ public sealed partial class MinecraftInstallService : IDisposable
         HttpClient? http = null,
         IMinecraftInstallMetadataSource? metadata = null,
         Func<string, IDownloadConnection>? connectionFactory = null,
-        IMinecraftLoaderInstaller? loaderInstaller = null)
+        IMinecraftLoaderInstaller? loaderInstaller = null,
+        Func<bool>? inheritVanilla = null)
     {
         _tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
         _downloads = downloads ?? throw new ArgumentNullException(nameof(downloads));
@@ -84,6 +87,7 @@ public sealed partial class MinecraftInstallService : IDisposable
         _metadata = metadata ?? new HttpMinecraftInstallMetadataSource(_http);
         _connectionFactory = connectionFactory;
         _loaderInstaller = loaderInstaller ?? new ForgeInstallService(_downloads, _http, connectionFactory);
+        _inheritVanilla = inheritVanilla;
     }
 
     /// <summary>Raised with the Minecraft root once an install commits, so the version library can rescan.</summary>
@@ -107,6 +111,7 @@ public sealed partial class MinecraftInstallService : IDisposable
             cancellationToken, task.CancellationToken);
         try
         {
+            command = command with { InheritVanilla = command.InheritVanilla ?? _inheritVanilla?.Invoke() ?? false };
             MinecraftInstallResult result = command.EditFingerprint is null
                 ? await RunAsync(command, task, linked.Token).ConfigureAwait(false)
                 : await ReinstallAsync(command, task, linked.Token).ConfigureAwait(false);
@@ -426,11 +431,28 @@ public sealed partial class MinecraftInstallService : IDisposable
         if (loaderJson is not null)
             await AdditionalLoaderProfiles.VerifyLiteLoaderAsync(loaderJson, root, token).ConfigureAwait(false);
 
-        if (loaderJson?["inheritsFrom"] is not null && (instanceId == game || command.PreparingEdit))
+        bool standalone = loaderJson is not null && (command.InheritVanilla != true || instanceId == game || command.PreparingEdit);
+        if (standalone)
         {
-            loaderJson = MinecraftLaunchPlanner.MergeManifests(loaderJson, [vanillaJson]);
+            loaderJson = loaderJson!["inheritsFrom"] is not null
+                ? MinecraftLaunchPlanner.MergeManifests(loaderJson, [vanillaJson]) : loaderJson;
             loaderJson.Remove("inheritsFrom");
-            loaderJson["jar"] = game;
+            loaderJson.Remove("jar");
+            loaderJson["_minecraftVersion"] = game;
+            string sourceJar = Path.Combine(gameDirectory, gameName + ".jar");
+            string targetJar = Path.Combine(instanceDirectory, instanceId + ".jar");
+            if (!MinecraftLibraryService.PathComparer.Equals(sourceJar, targetJar))
+            {
+                string temporary = targetJar + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                try
+                {
+                    await using (var input = File.OpenRead(sourceJar))
+                    await using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true))
+                        await input.CopyToAsync(output, token).ConfigureAwait(false);
+                    File.Move(temporary, targetJar, overwrite: true);
+                }
+                finally { TryDelete(temporary); }
+            }
         }
         JsonObject receipt = new() { ["game"] = game, ["loader"] = command.Loader?.ToString(), ["build"] = command.LoaderBuild };
         receipt["addons"] = new JsonArray((command.Addons ?? []).Select(addon => (JsonNode?)new JsonObject { ["loader"] = addon.Kind.ToString(), ["build"] = addon.Version }).ToArray());
@@ -446,9 +468,10 @@ public sealed partial class MinecraftInstallService : IDisposable
 
         // The documents land only now: the instance becomes discoverable exactly when its
         // files are complete. Re-runs skip existing files, so this commit is cheap.
-        await File.WriteAllTextAsync(
-            Path.Combine(gameDirectory, gameName + ".json"),
-            vanillaJson.ToJsonString(JsonOptions), token).ConfigureAwait(false);
+        if (!standalone)
+            await File.WriteAllTextAsync(
+                Path.Combine(gameDirectory, gameName + ".json"),
+                vanillaJson.ToJsonString(JsonOptions), token).ConfigureAwait(false);
         if (loaderJson is not null)
         {
             await File.WriteAllTextAsync(

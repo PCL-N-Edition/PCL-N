@@ -1,5 +1,17 @@
 [
   {
+    "id": "global.network.install-inherit-vanilla",
+    "parent": null,
+    "scope": "global",
+    "page": "network",
+    "section": "版本安装",
+    "label": "作为原版的附属版本安装",
+    "kind": "Setting",
+    "key": "install.inherit-vanilla",
+    "developer": false,
+    "availability": "Available"
+  },
+  {
     "id": "global.general.22b6c81eb644",
     "parent": null,
     "scope": "global",

@@ -22,12 +22,10 @@ internal static partial class Program
                 AssertTrue(result.IsSuccess, fixture.Entry().ErrorMessage ?? "profile install failed");
                 var installed = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(root, "versions", "renamed", "renamed.json")))!;
                 AssertEqual("renamed", installed["id"]!.ToString());
-                if (loader == InstallLoader.LabyMod)
-                {
-                    AssertTrue(installed["inheritsFrom"] is null);
-                    AssertEqual("1.20.1", installed["jar"]!.ToString());
-                }
-                else AssertEqual("1.20.1", installed["inheritsFrom"]!.ToString());
+                AssertTrue(installed["inheritsFrom"] is null);
+                AssertTrue(installed["jar"] is null);
+                AssertEqual(VanillaJson()["libraries"]!.AsArray().Count, installed["libraries"]!.AsArray().Count);
+                AssertTrue(File.Exists(Path.Combine(root, "versions", "renamed", "renamed.jar")));
             }
             finally { Directory.Delete(root, true); }
         }

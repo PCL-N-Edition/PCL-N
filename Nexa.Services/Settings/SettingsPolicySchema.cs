@@ -64,6 +64,7 @@ public static class SettingsPolicySchema
         new("network.proxy-user", SettingsValueKind.Text, "", false, false, "SystemHttpProxyCustomUsername", SettingsApplyTiming.NextTask, Exportable: false),
         new("network.proxy-password", SettingsValueKind.Text, "", false, false, "SystemHttpProxyCustomPassword", SettingsApplyTiming.NextTask, Exportable: false),
         new("network.doh", SettingsValueKind.Boolean, "true", false, false, "SystemNetEnableDoH", SettingsApplyTiming.NextTask),
+        new("install.inherit-vanilla", SettingsValueKind.Boolean, "false", false, false, null, SettingsApplyTiming.NextTask),
         new("diagnostics.telemetry", SettingsValueKind.Boolean, "false", false, false, "TelemetryExperienceProgram", SettingsApplyTiming.Immediate),
         new("updates.channel", SettingsValueKind.Enum, "alpha", false, false, null, SettingsApplyTiming.NextTask, Choices: "stable|alpha|beta|ci"),
         new("developer.enabled", SettingsValueKind.Boolean, "false", false, false, null, SettingsApplyTiming.Immediate),

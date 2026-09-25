@@ -4,6 +4,7 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("loader installs are independent unless opted into inheritance", LoaderInstallsAreIndependentUnlessOptedIn),
         ("instance management follows enabled capabilities", Sync(InstanceManagementPagesFollowEnabledCapabilities)),
         ("instance management reads exact instance", InstanceManagementReadsExactInstance),
         ("telemetry transport reports bounded failures", TelemetryTransportReportsBoundedFailures),

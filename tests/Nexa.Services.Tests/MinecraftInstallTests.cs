@@ -92,7 +92,7 @@ internal static partial class Program
         public List<string> InstalledRoots = [];
 
         public InstallFixture(FakeMetadata metadata, IInstallCatalogSource? catalog = null, IMinecraftLoaderInstaller? loaderInstaller = null, HttpClient? http = null,
-            Func<string, IDownloadConnection>? connectionFactory = null)
+            Func<string, IDownloadConnection>? connectionFactory = null, Func<bool>? inheritVanilla = null)
         {
             XsrStateStoreBuilder builder = new();
             TaskCenterStateContract.DeclareState(builder);
@@ -103,7 +103,7 @@ internal static partial class Program
             DownloadService downloads = new(Store);
             Install = new MinecraftInstallService(
                 Tasks, downloads, catalog, http: http, metadata: metadata,
-                connectionFactory: connectionFactory ?? (source => new ServingConnection(PayloadFor(source))), loaderInstaller: loaderInstaller);
+                connectionFactory: connectionFactory ?? (source => new ServingConnection(PayloadFor(source))), loaderInstaller: loaderInstaller, inheritVanilla: inheritVanilla);
             Install.Installed += root => InstalledRoots.Add(root);
         }
 
@@ -197,7 +197,8 @@ internal static partial class Program
                 new MinecraftInstallCommand(
                     root, "1.20.1",
                     Loader: InstallLoader.Fabric, LoaderBuild: "0.16.9",
-                    Addons: [new MinecraftInstallAddon(InstallLoader.FabricApi, "1.0.0")]));
+                    Addons: [new MinecraftInstallAddon(InstallLoader.FabricApi, "1.0.0")])
+                { InheritVanilla = true });
             string entryError = fixture.Entry().ErrorMessage ?? "none";
             AssertTrue(result.IsSuccess, $"install failed: {result.Error?.Code}; entry={entryError}");
 

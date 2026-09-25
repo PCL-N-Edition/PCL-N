@@ -329,6 +329,7 @@ internal sealed partial class SettingsPageController : IDisposable
     private static string? SettingHint(string? key) => key switch
     {
         "game.jvm" => "每行一个参数，应用后用于下次启动。",
+        "install.inherit-vanilla" => "关闭时安装独立版本；开启后依赖原版。下次安装生效。",
         "game.arguments" => "传递给 Minecraft 的额外启动参数。",
         "appearance.animations-disabled" => "减少界面切换和展开时的动态效果。",
         _ => null,

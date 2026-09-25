@@ -38,6 +38,9 @@ internal static partial class Program
                 var json = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(root, "versions", "custom-instance", "custom-instance.json")))!;
                 AssertEqual("bootstrap.Main", json["mainClass"]!.ToString());
                 AssertEqual("custom-instance", json["id"]!.ToString());
+                AssertTrue(json["inheritsFrom"] is null);
+                AssertTrue(json["jar"] is null);
+                AssertTrue(File.Exists(Path.Combine(root, "versions", "custom-instance", "custom-instance.jar")));
                 AssertEqual(1, fixture.InstalledRoots.Count);
             }
             finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
