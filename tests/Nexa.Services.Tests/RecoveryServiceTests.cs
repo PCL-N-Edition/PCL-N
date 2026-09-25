@@ -2,6 +2,7 @@ using Nexa.Services.Minecraft.Launch;
 using Nexa.Services.Minecraft.Management;
 using Nexa.Services.Minecraft.ModLoaders;
 using Nexa.Services.Minecraft.Process;
+using Nexa.Services.Settings;
 using Nexa.Xsr.State;
 
 namespace Nexa.Services.Tests;
@@ -104,6 +105,13 @@ internal static partial class Program
             Directory.Delete(pending);
             AssertTrue(await service.RecordSuccessfulExitAsync(plan, session, false));
             AssertEqual(3, Directory.GetFiles(Path.Combine(instance, "Nexa", "Recovery", "objects"), "*.br").Length);
+            AssertTrue(settings.Set(new("recovery.keep-history", SettingsLayer.Instance, new(SettingsOverrideMode.Custom, "true"), instance)).IsSuccess);
+            AssertTrue(await service.RecordSuccessfulExitAsync(plan, session, false));
+            AssertEqual(2, (await store.ListAsync()).Count);
+            AssertFalse((await store.ReadAsync())!.SettingsDocument.Contains("recovery.keep-history", StringComparison.Ordinal));
+            AssertTrue(settings.Set(new("recovery.keep-history", SettingsLayer.Instance, new(SettingsOverrideMode.Custom, "false"), instance)).IsSuccess);
+            AssertTrue(await service.RecordSuccessfulExitAsync(plan, session, false));
+            AssertEqual(1, (await store.ListAsync()).Count);
         }
         finally { Directory.Delete(root, true); }
     }

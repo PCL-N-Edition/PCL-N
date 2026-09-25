@@ -48,6 +48,7 @@ public static class SettingsPolicySchema
         new("java.auto-install", SettingsValueKind.Boolean, "false", true, false, null, SettingsApplyTiming.NextLaunch),
         new("java.vendor", SettingsValueKind.Text, "", true, false, null, SettingsApplyTiming.NextLaunch),
         new("java.compatibility", SettingsValueKind.Boolean, "true", true, false, null, SettingsApplyTiming.NextLaunch),
+        new("recovery.keep-history", SettingsValueKind.Boolean, "false", true, false, null, SettingsApplyTiming.NextTask, Exportable: false),
         new("game.memory", SettingsValueKind.Number, "2048", true, true, null, SettingsApplyTiming.NextLaunch, "MiB", 256, 1048576),
         new("game.window-mode", SettingsValueKind.Enum, "windowed", true, false, null, SettingsApplyTiming.NextLaunch, Choices: "windowed|fullscreen"),
         new("game.width", SettingsValueKind.Number, "854", true, false, "LaunchArgumentWindowWidth", SettingsApplyTiming.NextLaunch, "px", 1, 32768),

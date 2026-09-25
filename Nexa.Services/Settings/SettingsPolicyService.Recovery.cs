@@ -14,7 +14,7 @@ public sealed partial class SettingsPolicyService
         var effective = Resolve(snapshot.Revision, snapshot.Values, document, instance);
         var local = document["instances"]![instance] as JsonObject;
         JsonObject values = new();
-        foreach (var definition in SettingsPolicySchema.Definitions.Where(item => item.InstanceOverride))
+        foreach (var definition in SettingsPolicySchema.Definitions.Where(item => item.InstanceOverride && !item.Key.StartsWith("recovery.", StringComparison.Ordinal)))
         {
             var value = effective.Values.Single(item => item.Key == definition.Key);
             if (value.ValidationError is not null) throw new InvalidDataException("无法备份无效启动设置。");
@@ -44,7 +44,7 @@ public sealed partial class SettingsPolicyService
             if (input?["version"]?.GetValue<int>() != 1 || input["instance"]?.GetValue<string>() != instance
                 || input["values"] is not JsonObject values)
                 throw new InvalidDataException("启动设置快照不属于当前实例。");
-            var definitions = SettingsPolicySchema.Definitions.Where(item => item.InstanceOverride).ToArray();
+            var definitions = SettingsPolicySchema.Definitions.Where(item => item.InstanceOverride && !item.Key.StartsWith("recovery.", StringComparison.Ordinal)).ToArray();
             if (values.Count != definitions.Length || values.Any(item => !SettingsPolicySchema.ByKey.TryGetValue(item.Key, out var definition) || !definition.InstanceOverride))
                 throw new InvalidDataException("启动设置快照的字段不完整或不受支持。");
             var document = ReadDocument(snapshot.Values);

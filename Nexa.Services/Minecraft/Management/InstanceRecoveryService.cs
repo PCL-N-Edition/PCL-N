@@ -25,6 +25,15 @@ public sealed partial class InstanceRecoveryService(SettingsPolicyService settin
             var stop = cancellation.Token;
             string instance = Path.GetFullPath(plan.InstanceDirectory), game = Path.GetFullPath(plan.GameDirectory);
             string manifest = Path.Combine(instance, Path.GetFileName(instance) + ".json");
+            bool KeepHistory()
+            {
+                var effective = settings.Read(new(instance));
+                if (!effective.IsSuccess) throw new InvalidDataException("无法读取快照保留设置。");
+                var value = effective.Value!.Values.Single(item => item.Key == "recovery.keep-history");
+                if (value.ValidationError is not null) throw new InvalidDataException("快照保留设置无效。");
+                return bool.Parse(value.Value.Value!);
+            }
+            bool keepHistory = KeepHistory();
             string baselineSettings = settings.CaptureRecoverySettings(instance);
             async Task Validate(CancellationToken ct)
             {
@@ -38,7 +47,7 @@ public sealed partial class InstanceRecoveryService(SettingsPolicyService settin
                 var metadata = await new MinecraftInstanceMetadataStore().LoadAsync(instance, ct).ConfigureAwait(false);
                 string expectedGame = metadata.InstanceIsolation ? instance : Path.GetFullPath(root);
                 if (!MinecraftLibraryService.PathComparer.Equals(expectedGame, game)
-                    || settings.CaptureRecoverySettings(instance) != baselineSettings)
+                    || settings.CaptureRecoverySettings(instance) != baselineSettings || KeepHistory() != keepHistory)
                     throw new IOException("采集期间版本设置发生变化。");
             }
             await Validate(stop).ConfigureAwait(false);
@@ -53,7 +62,7 @@ public sealed partial class InstanceRecoveryService(SettingsPolicyService settin
                 var current = await RecoveryCapturePlan.BuildAsync(root, instance, game, manifest, ct).ConfigureAwait(false);
                 if (!sources.SequenceEqual(current)) throw new IOException("采集期间恢复范围发生变化。");
                 await Validate(ct).ConfigureAwait(false);
-            }, stop).ConfigureAwait(false);
+            }, keepHistory, stop).ConfigureAwait(false);
             log?.Info("Recovery", "已保存本次正常退出的恢复基线。");
             return true;
         }

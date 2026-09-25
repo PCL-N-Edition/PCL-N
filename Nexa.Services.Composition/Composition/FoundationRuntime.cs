@@ -99,9 +99,22 @@ public static class FoundationRuntimeComposer
         XsrCommandRouter commandRouter = commands.Build(dispatchObserver, timeProvider);
 
         XsrQueryRouterBuilder queries = new();
-        queries.Register<InstanceManagementQuery, InstanceManagementSnapshot>(InstanceManagementContract.Query,
-            async (query, token) => Nexa.Xsr.XsrResult.Success(await InstanceManagementService.ReadAsync(query, token).ConfigureAwait(false)));
         var recovery = new InstanceRecoveryService(host.SettingsPolicy, host.StateStore, host.Logging);
+        queries.Register<InstanceManagementQuery, InstanceManagementSnapshot>(InstanceManagementContract.Query,
+            async (query, token) =>
+            {
+                var snapshot = await InstanceManagementService.ReadAsync(query, token).ConfigureAwait(false);
+                if (query.IncludeRecoveryStorage)
+                {
+                    var comparison = await recovery.ReadAsync(new(query.InstanceDirectory), token).ConfigureAwait(false);
+                    snapshot = snapshot with
+                    {
+                        RecoveryComparison = comparison.IsSuccess ? comparison.Value :
+                        new(query.InstanceDirectory, null, null, [], "", "暂时无法比较更改，请刷新重试。")
+                    };
+                }
+                return Nexa.Xsr.XsrResult.Success(snapshot);
+            });
         queries.Register<InstanceRecoveryQuery, InstanceRecoveryReport>(InstanceRecoveryContract.Query,
             async (query, token) => await recovery.ReadAsync(query, token).ConfigureAwait(false));
         queries.Register(

@@ -1,5 +1,17 @@
 [
   {
+    "id": "instance.recovery.keep-history",
+    "parent": null,
+    "scope": "instance",
+    "page": "recovery",
+    "section": "快照保留",
+    "label": "保留历史快照",
+    "kind": "Setting",
+    "key": "recovery.keep-history",
+    "developer": false,
+    "availability": "Available"
+  },
+  {
     "id": "global.network.install-inherit-vanilla",
     "parent": null,
     "scope": "global",

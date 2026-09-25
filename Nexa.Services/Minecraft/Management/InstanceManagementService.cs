@@ -4,7 +4,10 @@ using Nexa.Xsr;
 
 namespace Nexa.Services.Minecraft.Management;
 
-public sealed record InstanceManagementQuery(string InstanceDirectory);
+public sealed record InstanceManagementQuery(string InstanceDirectory)
+{
+    public bool IncludeRecoveryStorage { get; init; }
+}
 public sealed record InstanceManagementPage(string Id, string Label, string? Directory = null);
 public sealed record InstanceContentEntry(string Name, bool IsDirectory, long? Size)
 {
@@ -18,6 +21,8 @@ public sealed record InstanceManagementSnapshot(string InstanceDirectory, string
 {
     public IReadOnlyList<InstanceContentSnapshot> Contents { get; init; } = [];
     public string Description { get; init; } = "";
+    public InstanceRecoveryStorage? RecoveryStorage { get; init; }
+    public InstanceRecoveryReport? RecoveryComparison { get; init; }
 }
 
 public static class InstanceManagementContract
@@ -49,6 +54,7 @@ public static class InstanceManagementService
                 pages, inventory.Complete, metadata.ModpackVersion)
             {
                 Description = metadata.Description,
+                RecoveryStorage = query.IncludeRecoveryStorage ? await InstanceRecoveryStorageReader.ReadAsync(instance, gameDirectory, token).ConfigureAwait(false) : null,
                 Contents = Array.AsReadOnly(pages.Where(page => page.Directory is not null)
                     .Select(page => ReadContent(page, token)).ToArray()),
             };
@@ -93,7 +99,7 @@ public static class InstanceManagementService
         bool shaders = components.Any(item => item.Loader == InstallLoader.OptiFine)
             || modLoader && enabled.Overlaps(["iris", "oculus", "optifine", "angelica"]);
         bool schematics = modLoader && enabled.Overlaps(["litematica", "schematica", "worldedit", "axiom", "syncmatica", "baritone"]);
-        List<InstanceManagementPage> pages = [new("overview", "总览"), new("game", "游戏设置")];
+        List<InstanceManagementPage> pages = [new("overview", "总览"), new("game", "游戏设置"), new("recovery", "快照与存储")];
         if (modLoader) pages.Add(new("mods", "模组", Path.Combine(gameDirectory, "mods")));
         pages.Add(new("resourcepacks", "资源包", Path.Combine(gameDirectory, "resourcepacks")));
         if (shaders) pages.Add(new("shaderpacks", "光影包", Path.Combine(gameDirectory, "shaderpacks")));

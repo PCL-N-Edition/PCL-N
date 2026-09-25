@@ -19,7 +19,7 @@ internal static partial class Program
         AssertTrue(values["game.jvm"]!["override"] is null);
         AssertEqual("--demo", values["game.arguments"]!["override"]!["value"]!.GetValue<string>());
         AssertFalse(baseline.Contains("--other-instance", StringComparison.Ordinal));
-        AssertEqual(SettingsPolicySchema.Definitions.Count(item => item.InstanceOverride), values.Count);
+        AssertEqual(SettingsPolicySchema.Definitions.Count(item => item.InstanceOverride && !item.Key.StartsWith("recovery.", StringComparison.Ordinal)), values.Count);
         AssertFalse(JsonNode.Parse(service.Export(new(instance)).Value!)!["values"]!.AsObject().ContainsKey("game.arguments"));
         AssertEqual(0, service.PreviewRecoverySettings(instance, baseline).Changes.Count);
 

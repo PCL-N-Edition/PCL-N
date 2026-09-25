@@ -5,6 +5,8 @@ internal static partial class Program
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
         ("recovery captures publish complete manifests only", RecoveryCaptureCommitsOnlyCompleteManifests),
+        ("recovery history retains references and defaults to latest only", RecoveryHistoryRetainsReferencesAndDefaultsToLatestOnly),
+        ("recovery history preserves previous isolation scope", RecoveryHistoryPreservesPreviousIsolationScope),
         ("recovery preparation verifies complete deduplicated staging", RecoveryPreparationVerifiesAllObjectsWithoutChangingLiveFiles),
         ("recovery preparation rejects corrupt stale and cancelled inputs", RecoveryPreparationRejectsCorruptAndStaleSnapshots),
         ("recovery diff reports files and settings without changing baseline", RecoveryDiffReportsFilesAndPrivateSettingsWithoutChangingBaseline),

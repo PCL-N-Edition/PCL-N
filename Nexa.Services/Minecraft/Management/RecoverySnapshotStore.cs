@@ -13,7 +13,7 @@ internal sealed record RecoverySnapshot(Guid Revision, string InstanceDirectory,
 /// Atomically publishes a fully copied capture plan. Policy owns plan enumeration, launch success
 /// admission, settings extraction and recovery transactions; this store never edits live game files.
 /// </summary>
-internal sealed class RecoverySnapshotStore
+internal sealed partial class RecoverySnapshotStore
 {
     internal const int MaxFiles = 10000;
     private const int MaxManifestBytes = 4 * 1024 * 1024;
@@ -31,8 +31,12 @@ internal sealed class RecoverySnapshotStore
     internal Task<RecoverySnapshot> CaptureAsync(IReadOnlyList<RecoverySource> sources, string settingsDocument, CancellationToken token = default) =>
         CaptureAsync(sources, settingsDocument, null, token);
 
+    internal Task<RecoverySnapshot> CaptureAsync(IReadOnlyList<RecoverySource> sources, string settingsDocument,
+        Func<CancellationToken, Task>? validatePlan, CancellationToken token = default) =>
+        CaptureAsync(sources, settingsDocument, validatePlan, false, token);
+
     internal async Task<RecoverySnapshot> CaptureAsync(IReadOnlyList<RecoverySource> sources, string settingsDocument,
-        Func<CancellationToken, Task>? validatePlan, CancellationToken token = default)
+        Func<CancellationToken, Task>? validatePlan, bool retainHistory, CancellationToken token = default)
     {
         if (sources.Count > MaxFiles) throw new InvalidDataException("快照文件数量超过限制。");
         JsonObject settings = ParseSettings(settingsDocument);
@@ -64,19 +68,7 @@ internal sealed class RecoverySnapshotStore
                 throw new IOException("采集期间文件发生变化，已保留上一个快照。");
         }
         var snapshot = new RecoverySnapshot(Guid.NewGuid(), _instance, _game, DateTimeOffset.UtcNow, files.AsReadOnly(), settings.ToJsonString());
-        JsonArray entries = [];
-        foreach (var file in snapshot.Files)
-            entries.Add((JsonNode)new JsonObject { ["area"] = file.Source.Area, ["path"] = file.Source.RelativePath, ["sha256"] = file.Blob.Sha256, ["length"] = file.Blob.Length });
-        var manifest = new JsonObject
-        {
-            ["version"] = 1,
-            ["revision"] = snapshot.Revision.ToString("D"),
-            ["instance"] = _instance,
-            ["game"] = _game,
-            ["capturedAt"] = snapshot.CapturedAt.ToString("O", CultureInfo.InvariantCulture),
-            ["files"] = entries,
-            ["settings"] = settings,
-        };
+        var manifest = EncodeManifest(snapshot);
         byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(manifest, RecoveryJsonContext.Default.JsonObject);
         if (bytes.Length > MaxManifestBytes) throw new InvalidDataException("快照清单超过大小限制。");
         string temporary = Path.Combine(_directory, Guid.NewGuid().ToString("N") + ".manifest.part");
@@ -90,9 +82,19 @@ internal sealed class RecoverySnapshotStore
                 output.Flush(flushToDisk: true);
             }
             token.ThrowIfCancellationRequested();
+            var history = await ReadHistoryUnderLeaseAsync(token).ConfigureAwait(false);
+            if (retainHistory) await ArchiveCurrentUnderLeaseAsync(history, token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
             File.Move(temporary, _manifest, overwrite: true);
             // Cleanup failure cannot undo a committed baseline. Retry on the next capture.
-            try { await _blobs.CollectUnreferencedAsync(files.Select(file => file.Blob.Sha256).ToHashSet(StringComparer.Ordinal), token).ConfigureAwait(false); }
+            try
+            {
+                if (!retainHistory) DeleteHistoryUnderLease(history);
+                var retained = files.Select(file => file.Blob.Sha256).ToHashSet(StringComparer.Ordinal);
+                if (retainHistory)
+                    foreach (var old in history) retained.UnionWith(old.Files.Select(file => file.Blob.Sha256));
+                await _blobs.CollectUnreferencedAsync(retained, token).ConfigureAwait(false);
+            }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or OperationCanceledException) { }
             return snapshot;
         }
@@ -111,10 +113,15 @@ internal sealed class RecoverySnapshotStore
     // Caller owns the manifest lease through preparation, preventing capture/GC races.
     internal async Task<RecoverySnapshot?> ReadUnderManifestLeaseAsync(CancellationToken token)
     {
+        return await ReadManifestFileAsync(_manifest, token).ConfigureAwait(false);
+    }
+
+    private async Task<RecoverySnapshot?> ReadManifestFileAsync(string path, CancellationToken token, bool allowPreviousGame = false)
+    {
         token.ThrowIfCancellationRequested();
-        RecoveryBlobStore.CheckLinks(_manifest);
-        if (!File.Exists(_manifest)) return null;
-        await using var input = new FileStream(_manifest, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
+        RecoveryBlobStore.CheckLinks(path);
+        if (!File.Exists(path)) return null;
+        await using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
         long length = input.Length;
         if (length > MaxManifestBytes) throw new InvalidDataException("快照清单超过大小限制。");
         byte[] bytes = new byte[(int)length + 1];
@@ -122,6 +129,13 @@ internal sealed class RecoverySnapshotStore
         while (total < bytes.Length && (read = await input.ReadAsync(bytes.AsMemory(total), token).ConfigureAwait(false)) != 0) total += read;
         if (total != length) throw new InvalidDataException("快照清单读取期间发生变化。");
         var document = JsonNode.Parse(bytes.AsSpan(0, total)) as JsonObject ?? throw new InvalidDataException("快照清单无效。");
+        if (allowPreviousGame && document["game"]?.GetValue<string>() is { } previousGame && previousGame != _game)
+        {
+            string? root = Directory.GetParent(_instance)?.Parent?.FullName;
+            if (!MinecraftLibraryService.PathComparer.Equals(previousGame, _instance)
+                && !MinecraftLibraryService.PathComparer.Equals(previousGame, root)) throw new InvalidDataException("历史快照游戏目录无效。");
+            return new RecoverySnapshotStore(_instance, previousGame).DecodeManifest(document);
+        }
         return DecodeManifest(document);
     }
 
