@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+if [ "$$" -eq 1 ]; then
+    printf '%s\n' 'Benchmark requires docker run --init; xvfb-run must not be PID 1.' >&2
+    exit 78
+fi
+
 # Fail before downloading game files if the isolated runtime/display cannot start.
 # Each probe is bounded independently; the outer workflow still bounds the entire run.
 printf '%s\n' 'Benchmark environment: native host probe'

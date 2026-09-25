@@ -50,6 +50,13 @@ with minimal inputs. Keep one X server across the display probe and measured cli
 tearing it down and starting a second unobserved server. Separate display-ready, process-entry and
 cancellation-registration markers narrow any remaining stall; the cause is not yet proven.
 
+Run 36107466153 narrowed the stall to virtual-display startup, before display-run.sh or the
+measured host ran. Reproduced locally with Linux `unshare --mount --pid --fork --mount-proc`:
+running xvfb-run as namespace PID 1 timed out (137); running it under a supervising timeout process
+completed (0). Docker now uses `--init`; the entrypoint refuses PID 1 immediately (78), and CI
+checks actual Xvfb startup in the restricted container before importing a pack. This fixes the
+identified startup structure, but real game/scenario acceptance still requires a successful pilot.
+
 ## Dataset and runner selection
 
 Maintain a reviewed, versioned pack catalog with provider project/version IDs, archive hashes,

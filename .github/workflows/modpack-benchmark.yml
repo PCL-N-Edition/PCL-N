@@ -44,11 +44,16 @@ jobs:
           mkdir "$RUNNER_TEMP/benchmark-output"
           sudo chown 10001:10001 "$RUNNER_TEMP/benchmark-output"
           docker image inspect nexa-benchmark --format '{{.Id}}'
+      - name: Verify virtual display under container init
+        run: |
+          timeout --signal=TERM --kill-after=5s 20s docker run --init --rm --name nexa-benchmark-display-smoke \
+            --network=none --cap-drop=ALL --security-opt=no-new-privileges --read-only \
+            --tmpfs /tmp:rw,nosuid,size=64m --entrypoint /usr/bin/xvfb-run nexa-benchmark -a /bin/true
       - name: Import pack and sample actual Minecraft client
         timeout-minutes: 15
         run: |
           hash=$(python -c "import json; print(json.load(open('eng/benchmarks/packs.json'))['packs'][0]['sha256'])")
-          timeout --signal=TERM --kill-after=15s 840s docker run --name nexa-benchmark-run --rm \
+          timeout --signal=TERM --kill-after=15s 840s docker run --init --name nexa-benchmark-run --rm \
             --cap-drop=ALL --security-opt=no-new-privileges --read-only --pids-limit=512 --memory=6g --cpus=2 \
             --tmpfs /tmp:rw,nosuid,size=1g --tmpfs /home/benchmark:rw,uid=10001,gid=10001,size=64m --shm-size=256m \
             --mount "type=bind,source=$RUNNER_TEMP/benchmark,target=/harness,readonly" \
@@ -59,7 +64,7 @@ jobs:
             nexa-benchmark /pack.mrpack "$hash" /java/bin/java /jvm-host/Nexa.Jvm.Host /output/run 2048 90
       - name: Stop container before inspecting untrusted output
         if: always()
-        run: docker rm -f nexa-benchmark-run 2>/dev/null || true
+        run: docker rm -f nexa-benchmark-run nexa-benchmark-display-smoke 2>/dev/null || true
       - name: Collect bounded normalized measurements only
         if: always()
         run: python eng/benchmarks/pilot.py collect "$RUNNER_TEMP/benchmark-output/run" "$RUNNER_TEMP/benchmark-artifacts"
