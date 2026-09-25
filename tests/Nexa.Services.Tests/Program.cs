@@ -5,6 +5,8 @@ internal static partial class Program
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
         ("recovery captures publish complete manifests only", RecoveryCaptureCommitsOnlyCompleteManifests),
+        ("persistent install metadata freezes documents and rejects corruption", PersistentInstallMetadataFreezesDocumentsAndRejectsCorruption),
+        ("persistent install metadata serializes publication and honors cancellation", PersistentInstallMetadataSerializesPublicationAndHonorsCancellation),
         ("install task journal preserves choices and rejects invalid records", InstallTaskJournalPreservesChoicesAndRejectsInvalidRecords),
         ("install publication survives process termination", InstallPublicationSurvivesProcessTermination),
         ("install publication preserves external changes and rejects tampering", InstallPublicationPreservesChangedFilesAndRejectsTampering),

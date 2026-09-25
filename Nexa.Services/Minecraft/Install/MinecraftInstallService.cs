@@ -166,8 +166,10 @@ public sealed partial class MinecraftInstallService : IDisposable
     private async Task<MinecraftInstallResult> RunAsync(
         MinecraftInstallCommand command,
         ITaskCenterTask task,
-        CancellationToken token)
+        CancellationToken token,
+        IMinecraftInstallMetadataSource? metadataSource = null)
     {
+        IMinecraftInstallMetadataSource metadata = metadataSource ?? _metadata;
         bool processorLoader = command.Loader is InstallLoader.Forge or InstallLoader.NeoForge or InstallLoader.Cleanroom or InstallLoader.OptiFine;
         if (command.Loader is not null && !IsProfileJsonLoader(command.Loader.Value) && !processorLoader)
         {
@@ -197,9 +199,9 @@ public sealed partial class MinecraftInstallService : IDisposable
         // dies mid-transfer leaves an invisible, resumable directory instead of a launchable
         // half-install whose missing libraries would kill the JVM before its window appears.
         task.Report(StagePlan[0], "正在获取版本清单", 0.02, 0, 0, 0);
-        JsonObject vanillaJson = await _metadata.FetchVanillaVersionJsonAsync(game, token).ConfigureAwait(false);
+        JsonObject vanillaJson = await metadata.FetchVanillaVersionJsonAsync(game, token).ConfigureAwait(false);
         JsonObject? loaderJson = !processorLoader && command.Loader is { } profileLoader && command.LoaderBuild is { } build
-            ? await _metadata.FetchLoaderProfileJsonAsync(profileLoader, game, build, token).ConfigureAwait(false)
+            ? await metadata.FetchLoaderProfileJsonAsync(profileLoader, game, build, token).ConfigureAwait(false)
             : null;
         if (!processorLoader && loaderJson is null && instanceId != gameName)
             loaderJson = new JsonObject { ["id"] = instanceId, ["inheritsFrom"] = gameName };
@@ -273,7 +275,7 @@ public sealed partial class MinecraftInstallService : IDisposable
         JsonObject assetIndexJson;
         if (assetIndexPlan.HasDownload)
         {
-            assetIndexJson = await _metadata.FetchAssetIndexJsonAsync(assetIndexPlan.Url!, token).ConfigureAwait(false);
+            assetIndexJson = await metadata.FetchAssetIndexJsonAsync(assetIndexPlan.Url!, token).ConfigureAwait(false);
         }
         else if (assetIndexPlan.IndexId is { } existingId
             && File.Exists(Path.Combine(root, "assets", "indexes", existingId + ".json")))

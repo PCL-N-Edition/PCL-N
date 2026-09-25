@@ -183,7 +183,7 @@ public sealed partial class MinecraftInstallService
                     ReuseRoot = original.RootDirectory,
                     PreparingEdit = true,
                     ModsRelativeDirectory = original.ModsRelativeDirectory
-                }, task, token).ConfigureAwait(false);
+                }, task, token, new PersistentInstallMetadataSource(stage, _metadata)).ConfigureAwait(false);
             string relativeManifest = $"versions/{instance}/{instance}.json";
             string targetManifest = ForgeInstallService.Contained(original.RootDirectory, relativeManifest);
             var current = await MinecraftInstallEditService.ReadAsync(new(original.RootDirectory, instance), token).ConfigureAwait(false);
