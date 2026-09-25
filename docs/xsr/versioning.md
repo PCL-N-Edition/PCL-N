@@ -75,6 +75,11 @@ grammars are refused, never guessed.
 
 ## Build inputs
 
+Runtime policy uses one immutable `LauncherBuildIdentity`. ProductVersion retains the full
+prerelease identity; CoreVersion is display/interoperability only. CI remains a separate rollout
+cohort while update discovery uses the alpha feed. Settings and telemetry use the same effective
+diagnostics policy. No policy may reconstruct a channel from the numeric core.
+
 New XSR projects import `eng/xsr/Xsr.Version.props`. Builds may set:
 
 - `XsrVersionChannel=stable|alpha|beta|ci`;

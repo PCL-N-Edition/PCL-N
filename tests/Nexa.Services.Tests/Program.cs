@@ -244,6 +244,7 @@ internal static partial class Program
         ("ci builds hop by commit", Sync(CiBuildsHopByCommit)),
         ("unrecognized versions are refused", Sync(UnrecognizedVersionsAreRefused)),
         ("version parsing normalizes legacy shapes", Sync(VersionParsingNormalizesLegacyShapes)),
+        ("build identity preserves policy channels", Sync(BuildIdentityPreservesPolicyChannels)),
         // XSR-509: update package planning.
         ("the patch index deserializes the legacy json", Sync(PatchIndexDeserializesLegacyJson)),
         ("build identity normalizes variants and configurations", Sync(BuildIdentityNormalizesVariantsAndConfigurations)),

@@ -42,7 +42,6 @@ internal static class Program
         .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
 
     /// <summary>The one version truth: informational version, channel, and semantic core.</summary>
-    internal sealed record LauncherBuildInfo(string InformationalVersion, string Channel, string SemanticVersion);
 
     /// <summary>
     /// Merges runtime account configuration with the public client IDs embedded by publish.
@@ -87,14 +86,8 @@ internal static class Program
             .GetCustomAttributes<System.Reflection.AssemblyMetadataAttribute>()
             .FirstOrDefault(attribute => attribute.Key == key)?.Value;
 
-    private static LauncherBuildInfo ResolveBuildInfo()
-    {
-        string informational = ResolveInformationalVersion();
-        string channel = ResolveVersionChannel() ?? "release";
-        string[] segments = informational.Split('.');
-        string semantic = segments.Length >= 3 ? string.Join('.', segments[..3]) : informational;
-        return new LauncherBuildInfo(informational, channel, semantic);
-    }
+    private static Nexa.Services.Updates.LauncherBuildIdentity ResolveBuildInfo() =>
+        Nexa.Services.Updates.LauncherBuildIdentity.Parse(ResolveInformationalVersion());
 
     // The Win32 clipboard (Avalonia's OLE implementation) requires an STA thread with COM
     // initialized; without this, every SetTextAsync fails with CO_E_NOTINITIALIZED.
@@ -181,7 +174,7 @@ internal static class Program
         // one composition-root wiring, with the logging domain excluded to prevent recursion.
         XsrOperationLog operationLog = new();
         XsrCompositeStateObserver stateObservation = new(uiRuntime.StateBridge, operationLog.State);
-        LauncherBuildInfo buildInfo = ResolveBuildInfo();
+        Nexa.Services.Updates.LauncherBuildIdentity buildInfo = ResolveBuildInfo();
         string channel = buildInfo.Channel;
         bool consoleAttached = Console.IsOutputRedirected
             || (OperatingSystem.IsWindows() && GetConsoleWindow() != IntPtr.Zero);
@@ -224,7 +217,7 @@ internal static class Program
             minecraftRootDirectory,
             identityResolver: accounts.LaunchIdentityResolver,
             observer: operationLog.Dispatch,
-            launcherVersion: buildInfo.SemanticVersion,
+            launcherVersion: buildInfo.ProductVersion,
             jvmHostExecutable: File.Exists(jvmHostPath) ? jvmHostPath : null,
             gameWindowAppeared: pid => MinecraftWindowIntegration.DetachGameWindows(
                 pid,
@@ -244,7 +237,7 @@ internal static class Program
             new XsrUiShellOptions
             {
                 Title = "NexaCL",
-                Version = buildInfo.SemanticVersion,
+                Version = buildInfo.ProductVersion,
             },
             uiIntents);
 
@@ -293,16 +286,15 @@ internal static class Program
             new NativeAccountUiEffects(platformActions), runtime.Host.Logging);
         launchPage.Attach();
         using SettingsPageController settingsPage = new(shell, uiIntents, runtime.Queries, runtime.Commands, host.StateStore, feedback);
-        settingsPage.TelemetryRequired = Nexa.Services.Telemetry.LauncherTelemetryPolicy.IsRequired(buildInfo.SemanticVersion);
+        settingsPage.TelemetryRequired = buildInfo.DiagnosticsRequired;
         using var updateHttp = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(20) };
         string updateRid = (OperatingSystem.IsWindows() ? "win" : OperatingSystem.IsMacOS() ? "osx" : "linux") + "-" + System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
-        string updateChannel = buildInfo.SemanticVersion.Contains(".alpha.", StringComparison.Ordinal) || buildInfo.SemanticVersion.Contains(".ci.", StringComparison.Ordinal) ? "alpha"
-            : buildInfo.SemanticVersion.Contains(".beta.", StringComparison.Ordinal) ? "beta" : "stable";
+        string updateChannel = buildInfo.UpdateChannel;
         using var rollouts = new Nexa.Services.Rollouts.RolloutService(updateHttp, host.StateStore,
-            Path.Combine(settingsFolder, "rollout-seed"), buildInfo.SemanticVersion.Contains(".ci.", StringComparison.Ordinal) ? "ci" : updateChannel, updateRid);
+            Path.Combine(settingsFolder, "rollout-seed"), buildInfo.Channel, updateRid);
         var updateService = new Nexa.Services.Updates.NexaUpdateService(updateHttp, rollouts);
         var updateQueries = NexaUpdateRuntimeComposer.Compose(updateService);
-        settingsPage.ConfigureUpdates(updateQueries, new(buildInfo.SemanticVersion, updateRid, updateChannel), platformActions.OpenHttpsUri);
+        settingsPage.ConfigureUpdates(updateQueries, new(buildInfo.ProductVersion, updateRid, updateChannel), platformActions.OpenHttpsUri);
         launchPage.SettingsPage = settingsPage.Page;
         using SettingsPageController versionSettings = new(shell, uiIntents, runtime.Queries, runtime.Commands, host.StateStore, feedback,
             () => ((MinecraftLibrarySnapshot?)host.StateStore.ReadAppliedValue(host.StateStore.Resolve(MinecraftLibraryService.StateKey)))?.SelectedInstance?.DirectoryPath);
