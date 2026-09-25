@@ -175,6 +175,8 @@ public sealed class JvmHostService : IJvmHost
         int epoch = 0;
         long successfulSamples = 0;
         bool samplingComplete = true;
+        string? settingsFingerprint = GameOptionsFingerprint.Read(plan.GameDirectory);
+        bool settingsFileStable = settingsFingerprint is not null;
         JvmRunSettings settings = JvmRunSettings.Read(plan.GameDirectory);
         void Emit(bool ended)
         {
@@ -231,6 +233,7 @@ public sealed class JvmHostService : IJvmHost
                 {
                     Emit(false);
                     JvmRunSettings currentSettings = JvmRunSettings.Read(plan.GameDirectory);
+                    settingsFileStable &= settingsFingerprint == GameOptionsFingerprint.Read(plan.GameDirectory);
                     if (currentSettings != settings) { settings = currentSettings; epoch++; }
                 }
                 await Task.Delay(500).ConfigureAwait(false);
@@ -265,10 +268,11 @@ public sealed class JvmHostService : IJvmHost
         Publish(observation);
         ResourceObservationSample? historySample = CreateHistorySample(plan, snapshot, observation,
             observedMilliseconds, successfulSamples, samplingComplete,
-            epoch == 0 && JvmRunSettings.Read(plan.GameDirectory) == settings);
+            epoch == 0 && JvmRunSettings.Read(plan.GameDirectory) == settings && settingsFileStable
+                && settingsFingerprint == GameOptionsFingerprint.Read(plan.GameDirectory));
         if (historySample is not null && await contextTask.ConfigureAwait(false) is { } context
             && ModInventoryFingerprint.Create(context.Inventory) is { } fingerprint)
-            _history?.Record(historySample with { ModFingerprint = fingerprint });
+            _history?.Record(historySample with { ModFingerprint = fingerprint, SettingsFingerprint = settingsFingerprint });
     }
 
     internal static ResourceObservationSample? CreateHistorySample(MinecraftLaunchPlan plan,

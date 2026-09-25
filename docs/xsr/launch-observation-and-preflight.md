@@ -21,6 +21,12 @@ The host reuses its bounded context scan and the capability provider uses the sa
 history without a fingerprint cannot calibrate. This prevents equal-count mod replacements from
 matching; it does not verify JAR content, runtime activation, configuration or workload equivalence.
 
+The persisted options.txt content must also match exactly, using a local SHA-256 fingerprint of
+at most 64 KiB of actual bytes. Missing, unreadable or oversized settings cannot match. The host
+checks this fingerprint at observation start, window boundaries and exit; an observed change
+disqualifies the run. No file content or fingerprint is added to remote telemetry. This covers
+persisted game options, not arbitrary mod configuration, runtime application of settings or worlds.
+
 Host history admission requires a normal exit (code zero), at least 60 seconds and 30 successful
 observations, uninterrupted sampling, no observed settings changes (including the final read), and
 no session crash evidence. Rejected runs remain diagnostic observations but do not calibrate the

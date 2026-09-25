@@ -1,5 +1,6 @@
 using Nexa.Services.Minecraft.Downloads;
 using Nexa.Services.Minecraft.Java;
+using Nexa.Services.Minecraft.Process;
 
 namespace Nexa.Services.Capabilities;
 
@@ -125,6 +126,8 @@ public sealed class MinecraftEnvironmentCapabilityProvider(
             return
             [
                 MachineInstanceCatalog.MinecraftSettingsReadable.Observe(false, timestamp, source),
+                ResourceHistoryCatalog.SettingsFingerprint.Unavailable(
+                    CapabilityAvailability.DependencyMissing, timestamp, "options.txt 不存在或不可读"),
                 MachineInstanceCatalog.MinecraftSettingsRenderDistance.Unavailable(
                     CapabilityAvailability.DependencyMissing, timestamp, "options.txt 不存在或不可读"),
                 MachineInstanceCatalog.MinecraftSettingsSimulationDistance.Unavailable(
@@ -140,8 +143,12 @@ public sealed class MinecraftEnvironmentCapabilityProvider(
             ];
         }
 
+        string? fingerprint = GameOptionsFingerprint.Read(primary.GameDirectory);
         return
         [
+            fingerprint is null ? ResourceHistoryCatalog.SettingsFingerprint.Unavailable(
+                CapabilityAvailability.DependencyMissing, timestamp, "游戏设置文件不可完整读取")
+                : ResourceHistoryCatalog.SettingsFingerprint.Observe(fingerprint, timestamp, source),
             MachineInstanceCatalog.MinecraftSettingsReadable.Observe(true, timestamp, source),
             MachineInstanceCatalog.MinecraftSettingsRenderDistance.Observe(options.RenderDistance, timestamp, source),
             MachineInstanceCatalog.MinecraftSettingsSimulationDistance.Observe(options.SimulationDistance, timestamp, source),

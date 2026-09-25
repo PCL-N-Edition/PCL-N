@@ -112,7 +112,7 @@ public static class MachineInstanceCatalog
             AccountAuthenticationValid, AccountAuthenticationRefreshable,
             MinecraftSettingsReadable, MinecraftSettingsRenderDistance, MinecraftSettingsSimulationDistance,
             MinecraftSettingsMipmapLevels, MinecraftSettingsGraphicsMode, MinecraftSettingsFullscreen,
-            MinecraftSettingsResourcePacks,
+            MinecraftSettingsResourcePacks, ResourceHistoryCatalog.SettingsFingerprint,
             MinecraftFilesRequired, MinecraftFilesMissing]);
 
     /// <summary>Scope facts for one instance path (storage volume + writability).</summary>

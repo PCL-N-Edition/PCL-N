@@ -93,9 +93,9 @@ internal static partial class Program
         ResourceObservationHistory history = new();
         string instanceDirectory = Path.Combine(Path.GetTempPath(), "nexa-history-fixture", "versions", "fixture");
         for (int index = 0; index < 12; index++)
-            history.Record(new(instanceDirectory, "Vanilla", 21, 0, 0, 1536 + index, 512, 2304, 2560, 256, 1000, now) { ModFingerprint = "fixture" });
+            history.Record(new(instanceDirectory, "Vanilla", 21, 0, 0, 1536 + index, 512, 2304, 2560, 256, 1000, now) { SettingsFingerprint = "options-fixture", ModFingerprint = "fixture" });
         ResourceEstimator calibrated = new(history: history);
-        ResourceEstimateSnapshot calibratedResult = calibrated.Estimate(new MachineCapabilitySnapshot(3, now, [ModCatalog.ModMetadataFingerprint.Observe("fixture", now, "fixture")]),
+        ResourceEstimateSnapshot calibratedResult = calibrated.Estimate(new MachineCapabilitySnapshot(3, now, [ModCatalog.ModMetadataFingerprint.Observe("fixture", now, "fixture"), ResourceHistoryCatalog.SettingsFingerprint.Observe("options-fixture", now, "fixture")]),
             new MachineCapabilityQuery(instanceDirectory));
         AssertTrue(calibratedResult.HeapRuntime.HistoricalWeight > 0);
         AssertEqual(0d, calibrated.Estimate(new MachineCapabilitySnapshot(3, now, [])).HeapRuntime.HistoricalWeight);

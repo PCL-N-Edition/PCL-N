@@ -17,6 +17,14 @@ public sealed record ResourceObservationSample(
     DateTimeOffset Timestamp)
 {
     public string? ModFingerprint { get; init; }
+    public string? SettingsFingerprint { get; init; }
+}
+
+internal static class ResourceHistoryCatalog
+{
+    public static readonly CapabilityDefinition<string> SettingsFingerprint = new(
+        "minecraft.settings.fingerprint", "游戏设置指纹", "游戏设置", MachineInstanceCatalog.MinecraftProviderId,
+        CapabilityKind.Fact, CapabilityStability.Dynamic);
 }
 
 public sealed class ResourceObservationHistory(int capacity = 128)
@@ -119,8 +127,11 @@ internal static class ResourceEstimateModel
 
         string? scope = NormalizeInstance(instanceDirectory);
         string? fingerprint = ReadString(values, "mod.metadata.fingerprint");
-        ResourceObservationSample[] samples = scope is null || string.IsNullOrEmpty(fingerprint) ? [] : history.Snapshot()
+        string? settingsFingerprint = ReadString(values, ResourceHistoryCatalog.SettingsFingerprint.Id);
+        ResourceObservationSample[] samples = scope is null || string.IsNullOrEmpty(fingerprint)
+            || string.IsNullOrEmpty(settingsFingerprint) ? [] : history.Snapshot()
             .Where(item => string.Equals(item.ModFingerprint, fingerprint, StringComparison.Ordinal))
+            .Where(item => string.Equals(item.SettingsFingerprint, settingsFingerprint, StringComparison.Ordinal))
             .Where(item => string.Equals(NormalizeInstance(item.InstanceKey), scope,
                 OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)).ToArray();
         double loaderSimilarity = samples.Length == 0 ? 0 : samples.Count(item => string.Equals(item.Loader, loader, StringComparison.OrdinalIgnoreCase)) / (double)samples.Length;
