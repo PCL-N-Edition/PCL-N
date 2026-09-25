@@ -12,16 +12,15 @@ using Nexa.UI.Next;
 namespace Nexa.UI.Next.Backend.Avalonia;
 
 /// <summary>
-/// Native opaque window around a UI.Next scene. Native decorations retain platform animation,
+/// Composited window around an opaque UI.Next scene. Native decorations retain platform animation,
 /// resize and fullscreen behavior. macOS keeps its system traffic lights; Windows uses DWM.
-/// The scene owns layout insets and the host clips its presentation to matching inner corners.
+/// The host reserves shadow space outside the scene and clips its presentation to rounded corners.
 /// </summary>
 public sealed class AvaloniaUiShellWindow : Window
 {
-    // Reserved native resize gutter, expressed in logical pixels (DIPs).
-    private const double ChromeMargin = 0; // Resize hit zones overlay the content; no visible gutter.
-    // The shell uses a larger outer radius than cards. DWM remains opaque/native; both the
-    // host region and the inner clip use this exact value so no square corner can leak through.
+    // Shadow space outside the preserved scene viewport, expressed in DIPs.
+    private const double ChromeMargin = 24;
+    // The compositor owns the large radius; opaque fallback uses the same native region.
     private const double ChromeCornerRadius = 24;
     private const double CloseIconSize = 112;
 
@@ -41,16 +40,21 @@ public sealed class AvaloniaUiShellWindow : Window
     private bool _awaitingFirstSceneCommit;
     private bool _closeAnimationStarted;
     private bool _disposed;
+    private bool _updatingChrome;
+    private double _restoredFrameInset;
+    internal bool UsesCompositedEdges => ActualTransparencyLevel == WindowTransparencyLevel.Transparent
+        && !AvaloniaWindowsFrame.IsLayered(this);
 
     public AvaloniaUiShellWindow(XsrUiShell shell, Stream? iconStream = null)
     {
         ArgumentNullException.ThrowIfNull(shell);
         _shell = shell;
         Title = shell.Title;
-        Width = 850;
-        Height = 500;
-        MinWidth = 810;
-        MinHeight = 470;
+        _restoredFrameInset = OperatingSystem.IsMacOS() ? 0 : ChromeMargin;
+        Width = 850 + _restoredFrameInset * 2;
+        Height = 500 + _restoredFrameInset * 2;
+        MinWidth = 810 + _restoredFrameInset * 2;
+        MinHeight = 470 + _restoredFrameInset * 2;
         CanResize = true;
         ShowInTaskbar = true;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -66,10 +70,11 @@ public sealed class AvaloniaUiShellWindow : Window
                 Setters = { new Setter(WindowDrawnDecorations.TemplateProperty, new EmptyWindowDecorationsTemplate()) },
             };
         }
-        // Never opt into a layered transparent main window: DWM owns native transitions.
-        Background = new SolidColorBrush(Color.FromRgb(shell.Palette.WindowBackground.Red, shell.Palette.WindowBackground.Green, shell.Palette.WindowBackground.Blue));
-        TransparencyBackgroundFallback = Background;
-        TransparencyLevelHint = [WindowTransparencyLevel.None];
+        // Transparent edge pixels are composited; the inner surface remains fully opaque.
+        // A layered Win32 fallback is rejected after the platform handle becomes available.
+        Background = Brushes.Transparent;
+        TransparencyBackgroundFallback = new SolidColorBrush(Color.FromRgb(shell.Palette.WindowBackground.Red, shell.Palette.WindowBackground.Green, shell.Palette.WindowBackground.Blue));
+        TransparencyLevelHint = [WindowTransparencyLevel.Transparent, WindowTransparencyLevel.None];
         ExtendClientAreaTitleBarHeightHint = XsrUiShell.TitleBarHeight;
         if (iconStream is not null)
         {
@@ -84,9 +89,8 @@ public sealed class AvaloniaUiShellWindow : Window
             Margin = new Thickness(0),
             CornerRadius = new CornerRadius(ChromeCornerRadius),
             BoxShadow = default,
-            // A 1/255 hit-test dummy keeps the shadow region inside the transparent window
-            // instead of leaving a 1-pixel seam on compositorless setups.
-            Background = new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)),
+            Background = TransparencyBackgroundFallback,
+            IsHitTestVisible = false,
         };
         _chromeSurface = new Border
         {
@@ -363,7 +367,6 @@ public sealed class AvaloniaUiShellWindow : Window
             _startupIcon = null;
         }
         _closeIconScale = new ScaleTransform(presentedIconScale, presentedIconScale);
-        TransparencyLevelHint = [WindowTransparencyLevel.None];
         _shadowSurface.IsVisible = false;
         _shadowSurface.BoxShadow = default;
         double width = _root.Bounds.Width;
@@ -534,7 +537,7 @@ public sealed class AvaloniaUiShellWindow : Window
         // TopLevel as a plain property, so subscribe to the TypedVisualTreeMutation/Bounds
         // signals that accompany a DPI change instead — Bounds covers the common reflow, and
         // UpdateChromeForState re-reads RenderScaling at call time anyway.
-        if (e.Property == BoundsProperty || e.Property == Window.WindowStateProperty)
+        if (e.Property == BoundsProperty || e.Property == Window.WindowStateProperty || e.Property == ActualTransparencyLevelProperty)
             UpdateChromeForState(WindowState is WindowState.Maximized or WindowState.FullScreen);
         if (e.Property == Window.WindowStateProperty)
         {
@@ -551,49 +554,74 @@ public sealed class AvaloniaUiShellWindow : Window
     /// </summary>
     private void UpdateChromeForState(bool maximized)
     {
-        double inset = maximized ? 0 : ChromeMargin;
-        _shell.PublishWindowMetrics(AvaloniaMacWindow.ConfigureAndMeasure(this), WindowState == WindowState.FullScreen, inset);
-        // An opaque native window still paints behind the rounded scene clip. Match the
-        // title region as well as the body so DWM's smaller corner mask reveals no white rim.
-        var title = _shell.Palette.TitleBarBackground;
-        var body = _shell.Palette.WindowBackground;
-        double split = Math.Clamp(XsrUiShell.TitleBarHeight / Math.Max(1, Bounds.Height), 0, 1);
-        Background = new LinearGradientBrush
+        if (_updatingChrome) return;
+        _updatingChrome = true;
+        try
         {
-            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-            EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
-            GradientStops = new GradientStops
+            if (AvaloniaWindowsFrame.IsLayered(this)) TransparencyLevelHint = [WindowTransparencyLevel.None];
+            bool composited = UsesCompositedEdges;
+            double restoredInset = composited && !OperatingSystem.IsMacOS() ? ChromeMargin : 0;
+            double delta = restoredInset - _restoredFrameInset;
+            _restoredFrameInset = restoredInset;
+            MinWidth = 810 + restoredInset * 2;
+            MinHeight = 470 + restoredInset * 2;
+            if (delta != 0 && WindowState == WindowState.Normal)
+            {
+                Width += delta * 2;
+                Height += delta * 2;
+            }
+            double inset = maximized ? 0 : restoredInset;
+            _shell.PublishWindowMetrics(AvaloniaMacWindow.ConfigureAndMeasure(this), WindowState == WindowState.FullScreen, 0);
+            // An opaque native window still paints behind the rounded scene clip. Match the
+            // title region as well as the body so DWM's smaller corner mask reveals no white rim.
+            var title = _shell.Palette.TitleBarBackground;
+            var body = _shell.Palette.WindowBackground;
+            double split = Math.Clamp(XsrUiShell.TitleBarHeight / Math.Max(1, Bounds.Height), 0, 1);
+            var opaqueBackground = new LinearGradientBrush
+            {
+                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+                EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
+                GradientStops = new GradientStops
             {
                 new(Color.FromRgb(title.Red, title.Green, title.Blue), 0),
                 new(Color.FromRgb(title.Red, title.Green, title.Blue), split),
                 new(Color.FromRgb(body.Red, body.Green, body.Blue), split),
                 new(Color.FromRgb(body.Red, body.Green, body.Blue), 1),
             },
-        };
-        TransparencyBackgroundFallback = Background;
-        CornerRadius radius = maximized ? new CornerRadius(0) : new CornerRadius(ChromeCornerRadius);
-        _shadowSurface.Margin = new Thickness(0);
-        _shadowSurface.CornerRadius = radius;
-        _shadowSurface.BoxShadow = default;
-        _chromeSurface.Margin = new Thickness(0);
-        _chromeSurface.CornerRadius = radius;
-        _chromeSurface.Clip = new RectangleGeometry
-        {
-            Rect = new Rect(inset, inset, Math.Max(0, _root.Bounds.Width - inset * 2), Math.Max(0, _root.Bounds.Height - inset * 2)),
-            RadiusX = maximized ? 0 : ChromeCornerRadius,
-            RadiusY = maximized ? 0 : ChromeCornerRadius,
-        };
-        _windowActions.Margin = new Thickness(inset, inset, inset + 12, 0);
-        ApplyNativeShape();
-
+            };
+            Background = composited ? Brushes.Transparent : opaqueBackground;
+            TransparencyBackgroundFallback = opaqueBackground;
+            _chromeSurface.Background = opaqueBackground;
+            _shadowSurface.Background = opaqueBackground;
+            CornerRadius radius = maximized ? new CornerRadius(0) : new CornerRadius(ChromeCornerRadius);
+            _shadowSurface.Margin = new Thickness(inset);
+            _shadowSurface.CornerRadius = radius;
+            _shadowSurface.BoxShadow = composited && inset > 0 && !_closeAnimationStarted
+                ? new BoxShadows(new BoxShadow { Blur = 16, OffsetY = 4, Color = Color.FromArgb(64, 0, 0, 0) }) : default;
+            _chromeSurface.Margin = new Thickness(inset);
+            _chromeSurface.CornerRadius = radius;
+            _chromeSurface.Clip = new RectangleGeometry
+            {
+                Rect = new Rect(0, 0, Math.Max(0, _root.Bounds.Width - inset * 2), Math.Max(0, _root.Bounds.Height - inset * 2)),
+                RadiusX = maximized ? 0 : ChromeCornerRadius,
+                RadiusY = maximized ? 0 : ChromeCornerRadius,
+            };
+            _windowActions.Margin = new Thickness(0, 0, 12, 0);
+            ApplyNativeShape();
+        }
+        finally { _updatingChrome = false; }
     }
 
-    private void ApplyNativeShape() => AvaloniaWindowsFrame.ApplyCornerRadius(
+    private void ApplyNativeShape()
+    {
+        if (UsesCompositedEdges) { AvaloniaWindowsFrame.ClearShape(this); return; }
+        AvaloniaWindowsFrame.ApplyCornerRadius(
         this,
         ChromeCornerRadius,
         _revealMask?.RadiusX,
         _revealMask is null ? null : _closeIcon is null ? 0 : CloseIconSize * .56
             * (_closeAnimationStarted ? _closeIconScale?.ScaleX ?? 0 : _startupIconScale?.ScaleX ?? 1));
+    }
 
     private void OnMaximizeRequested(object? sender, EventArgs e) => ToggleMaximized();
 

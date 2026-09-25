@@ -27,7 +27,12 @@ public static class AvaloniaUiShellHost
         ArgumentNullException.ThrowIfNull(shell);
         _shell = shell;
         _platformActions = platformActions;
-        return AppBuilder.Configure<ShellApplication>().UsePlatformDetect();
+        return AppBuilder.Configure<ShellApplication>().UsePlatformDetect()
+            .With(new Win32PlatformOptions
+            {
+                CompositionMode = [Win32CompositionMode.WinUIComposition, Win32CompositionMode.DirectComposition,
+                    Win32CompositionMode.RedirectionSurface],
+            });
     }
 
     /// <summary>

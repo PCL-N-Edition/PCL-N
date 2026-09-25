@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Media;
 using Nexa.UI.Next;
 using Nexa.UI.Next.Backend.Avalonia;
 using Nexa.Xsr.State;
@@ -13,7 +14,12 @@ internal static partial class Program
     private static int RunNativeCornerSmoke()
     {
         if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("Native corner smoke requires Windows.");
-        return AppBuilder.Configure<NativeCornerProbeApp>().UsePlatformDetect().StartWithClassicDesktopLifetime([]);
+        return AppBuilder.Configure<NativeCornerProbeApp>().UsePlatformDetect()
+            .With(new Win32PlatformOptions
+            {
+                CompositionMode = [Win32CompositionMode.WinUIComposition, Win32CompositionMode.DirectComposition,
+                    Win32CompositionMode.RedirectionSurface],
+            }).StartWithClassicDesktopLifetime([]);
     }
 
     public sealed class NativeCornerProbeApp : Application
@@ -30,23 +36,35 @@ internal static partial class Program
                 {
                     try
                     {
-                        await Task.Delay(200);
-                        VerifyClientCorners(window);
+                        await Task.Delay(300);
+                        VerifyCompositedViewport(window, 850, 500);
                         window.Width += 100; window.Height += 50;
-                        await Task.Delay(100);
-                        VerifyClientCorners(window);
+                        await Task.Delay(200);
+                        VerifyCompositedViewport(window, 950, 550);
                         window.WindowState = WindowState.Maximized;
-                        await Task.Delay(200);
+                        await Task.Delay(300);
                         VerifyNoRegion(window);
+                        var root = (Control)window.Content!;
+                        AssertEqual(root.Bounds.Size, window.Surface.Bounds.Size);
+                        AssertEqual(new Point(0, 0), window.Surface.TranslatePoint(default, root)!.Value);
                         window.WindowState = WindowState.Normal;
+                        await Task.Delay(300);
+                        VerifyCompositedViewport(window, 950, 550);
+                        window.WindowState = WindowState.Minimized;
                         await Task.Delay(200);
-                        VerifyClientCorners(window);
-                        AvaloniaWindowsFrame.ApplyCornerRadius(window, 24, 0, 0);
-                        nint empty = CreateRectRgn(0, 0, 0, 0);
-                        try { int kind = GetWindowRgn(window.TryGetPlatformHandle()!.Handle, empty); Console.WriteLine($"zero region kind={kind}"); AssertTrue(kind == 1); }
-                        finally { _ = DeleteObject(empty); }
-                        Console.WriteLine("PASS: zero reveal and icon leave an empty native window region");
-                        Console.WriteLine("PASS: all four client corners, edge centers, resize and maximize/restore");
+                        window.WindowState = WindowState.Normal;
+                        await Task.Delay(300);
+                        VerifyCompositedViewport(window, 950, 550);
+                        window.TransparencyLevelHint = [WindowTransparencyLevel.None];
+                        await Task.Delay(200);
+                        AssertFalse(window.UsesCompositedEdges);
+                        AssertEqual(((Control)window.Content!).Bounds.Size, window.Surface.Bounds.Size);
+                        AssertTrue(Math.Abs(window.Surface.Bounds.Width - 950) <= 1 / window.RenderScaling);
+                        AssertTrue(window.Background is LinearGradientBrush fallback && fallback.GradientStops.All(stop => stop.Color.A == 255));
+                        window.TransparencyLevelHint = [WindowTransparencyLevel.Transparent, WindowTransparencyLevel.None];
+                        await Task.Delay(200);
+                        VerifyCompositedViewport(window, 950, 550);
+                        Console.WriteLine("PASS: compositor without layered window or integer region; preserved scene and input origin; resize, maximize and minimize restoration");
                         desktop.Shutdown(0);
                     }
                     catch (Exception error) { Console.Error.WriteLine(error); desktop.Shutdown(1); }
@@ -56,27 +74,24 @@ internal static partial class Program
         }
     }
 
-    private static void VerifyClientCorners(AvaloniaUiShellWindow window)
+    private static void VerifyCompositedViewport(AvaloniaUiShellWindow window, double width, double height)
     {
-        var content = (Control)window.Content!;
-        nint handle = window.TryGetPlatformHandle()!.Handle;
-        AssertTrue(GetWindowRect(handle, out var outer) != 0);
-        var origin = content.PointToScreen(default);
-        int left = origin.X - outer.Left, top = origin.Y - outer.Top;
-        int right = left + (int)Math.Round(content.Bounds.Width * window.RenderScaling) - 1;
-        int bottom = top + (int)Math.Round(content.Bounds.Height * window.RenderScaling) - 1;
-        nint region = CreateRectRgn(0, 0, 0, 0);
-        try
-        {
-            AssertTrue(GetWindowRgn(handle, region) == 3);
-            // These are content corners, deliberately not the larger HWND corners.
-            foreach (var point in new[] { (left, top), (right, top), (left, bottom), (right, bottom) })
-                AssertTrue(PtInRegion(region, point.Item1, point.Item2) == 0);
-            foreach (var point in new[] { ((left + right) / 2, top), ((left + right) / 2, bottom), (left, (top + bottom) / 2), (right, (top + bottom) / 2) })
-                AssertTrue(PtInRegion(region, point.Item1, point.Item2) != 0);
-            AssertTrue(window.TransparencyLevelHint.All(level => level == WindowTransparencyLevel.None));
-        }
-        finally { _ = DeleteObject(region); }
+        Console.WriteLine($"transparency={window.ActualTransparencyLevel}, layered={AvaloniaWindowsFrame.IsLayered(window)}, scene={window.Surface.Bounds.Size}");
+        AssertTrue(window.UsesCompositedEdges);
+        AssertFalse(AvaloniaWindowsFrame.IsLayered(window));
+        VerifyNoRegion(window);
+        // Native pixel bounds round fractional DIPs at scales such as 125%.
+        AssertTrue(Math.Abs(width - window.Surface.Bounds.Width) <= 1 / window.RenderScaling);
+        AssertTrue(Math.Abs(height - window.Surface.Bounds.Height) <= 1 / window.RenderScaling);
+        var root = (Control)window.Content!;
+        AssertEqual(new Size(window.Surface.Bounds.Width + 48, window.Surface.Bounds.Height + 48), root.Bounds.Size);
+        AssertEqual(new Point(24, 24), window.Surface.TranslatePoint(default, root)!.Value);
+        AssertEqual(new Point(0, 0), root.TranslatePoint(new Point(24, 24), window.Surface)!.Value);
+        AssertTrue(window.Background is ISolidColorBrush { Color.A: 0 });
+        var chrome = (Border)window.Surface.Parent!.Parent!;
+        AssertEqual(new CornerRadius(24), chrome.CornerRadius);
+        AssertTrue(chrome.Clip is RectangleGeometry { RadiusX: 24, RadiusY: 24 });
+        AssertTrue(chrome.Background is LinearGradientBrush background && background.GradientStops.All(stop => stop.Color.A == 255));
     }
     private static void VerifyNoRegion(AvaloniaUiShellWindow window)
     {
@@ -84,10 +99,7 @@ internal static partial class Program
         try { AssertEqual(0, GetWindowRgn(window.TryGetPlatformHandle()!.Handle, region)); }
         finally { _ = DeleteObject(region); }
     }
-    [StructLayout(LayoutKind.Sequential)] private struct CornerRect { public int Left, Top, Right, Bottom; }
-    [LibraryImport("user32.dll")] private static partial int GetWindowRect(nint window, out CornerRect rectangle);
     [LibraryImport("user32.dll")] private static partial int GetWindowRgn(nint window, nint region);
     [LibraryImport("gdi32.dll")] private static partial nint CreateRectRgn(int left, int top, int right, int bottom);
-    [LibraryImport("gdi32.dll")] private static partial int PtInRegion(nint region, int x, int y);
     [LibraryImport("gdi32.dll")] private static partial int DeleteObject(nint region);
 }

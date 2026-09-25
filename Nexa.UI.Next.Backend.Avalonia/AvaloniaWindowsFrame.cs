@@ -7,6 +7,23 @@ namespace Nexa.UI.Next.Backend.Avalonia;
 /// <summary>Suppresses the Windows 11 DWM hairline without disabling native window animations.</summary>
 internal static partial class AvaloniaWindowsFrame
 {
+    internal static bool IsLayered(Window window) => OperatingSystem.IsWindows()
+        && window.TryGetPlatformHandle() is { HandleDescriptor: "HWND" } handle
+        && (GetWindowLongPtr(handle.Handle, -20).ToInt64() & 0x80000) != 0;
+
+    internal static void ClearShape(Window window)
+    {
+        if (!OperatingSystem.IsWindows() || window.TryGetPlatformHandle() is not { HandleDescriptor: "HWND" } handle) return;
+        if (Shapes.TryGetValue(window, out ShapeState? state) && state.Applied)
+        {
+            _ = SetWindowRgn(handle.Handle, 0, 1);
+            state.Applied = false;
+        }
+    }
+
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static partial nint GetWindowLongPtr(nint window, int index);
+
     internal const int BorderColorAttribute = 34;
     internal const uint NoBorderColor = 0xFFFFFFFE;
 

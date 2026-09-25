@@ -345,8 +345,11 @@ internal static partial class Program
         AssertEqual(ShutdownMode.OnMainWindowClose, LifetimeProbeApp.ObservedShutdownMode);
         AssertTrue(LifetimeProbeApp.ObservedMainWindow is AvaloniaUiShellWindow);
         var main = (AvaloniaUiShellWindow)LifetimeProbeApp.ObservedMainWindow!;
-        AssertTrue(main.TransparencyLevelHint.All(level => level == WindowTransparencyLevel.None));
-        AssertTrue(main.Background is LinearGradientBrush background && background.GradientStops.All(stop => stop.Color.A == 255));
+        AssertTrue(main.TransparencyLevelHint.Contains(WindowTransparencyLevel.Transparent));
+        if (main.UsesCompositedEdges)
+            AssertTrue(main.Background is ISolidColorBrush { Color.A: 0 });
+        else
+            AssertTrue(main.Background is LinearGradientBrush background && background.GradientStops.All(stop => stop.Color.A == 255));
         // Under reduced motion the handoff is synchronous: the splash closed the moment the
         // shell window took over the icon, leaving exactly the shell window alive — and its
         // close did not terminate the process early, proving the splash never owned the
