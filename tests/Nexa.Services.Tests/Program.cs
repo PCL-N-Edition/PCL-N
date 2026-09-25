@@ -5,6 +5,8 @@ internal static partial class Program
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
         ("recovery captures publish complete manifests only", RecoveryCaptureCommitsOnlyCompleteManifests),
+        ("install publication survives process termination", InstallPublicationSurvivesProcessTermination),
+        ("install publication preserves external changes and rejects tampering", InstallPublicationPreservesChangedFilesAndRejectsTampering),
         ("recovery coordinator commits and compensates settings", RecoveryCoordinatorCommitsAndCompensatesSettings),
         ("recovery coordinator reopens interrupted settings commit", RecoveryCoordinatorReopensInterruptedSettingsCommit),
         ("recovery file transaction restores selected files and reverses", RecoveryFileTransactionRestoresOnlySelectedFilesAndReverses),
@@ -396,6 +398,7 @@ internal static partial class Program
 
     private static async Task<int> Main(string[] args)
     {
+        if (args is ["--install-publication-child", var root, var stage]) return await RunInstallPublicationChild(root, stage);
         if (args is ["--jvm-host"]) return await ReceiveJvmHostFixture();
         if (args.Contains("--live-install-catalog")) { await LiveInstallCatalogSmoke(); return 0; }
         foreach ((string name, Func<ValueTask> body) in TestCases)

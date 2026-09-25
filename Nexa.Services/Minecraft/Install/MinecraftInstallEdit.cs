@@ -169,6 +169,7 @@ public sealed partial class MinecraftInstallService
         }
         string stage = ForgeInstallService.Contained(original.RootDirectory, ".nexa-modify/" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(stage);
+        bool safeToRemove = false;
         try
         {
             if (editPlan.Kind == MinecraftInstallEditKind.ComponentsOnly)
@@ -183,69 +184,31 @@ public sealed partial class MinecraftInstallService
                     ModsRelativeDirectory = original.ModsRelativeDirectory
                 }, task, token).ConfigureAwait(false);
             string relativeManifest = $"versions/{instance}/{instance}.json";
-            string stagedManifest = ForgeInstallService.Contained(stage, relativeManifest);
             string targetManifest = ForgeInstallService.Contained(original.RootDirectory, relativeManifest);
             var current = await MinecraftInstallEditService.ReadAsync(new(original.RootDirectory, instance), token).ConfigureAwait(false);
             if (current.Fingerprint != original.Fingerprint) throw new InvalidDataException("安装期间原版本已更改，请重试。");
-            string[] generatedFiles = Directory.GetFiles(stage, "*", SearchOption.AllDirectories);
-            List<(string Destination, string? Backup)> rollback = [];
-            string rollbackRoot = Path.Combine(stage, ".rollback");
-            Directory.CreateDirectory(rollbackRoot);
-            bool committed = false;
-            void PreserveMod(string destination)
+            string[] generatedFiles = Directory.GetFiles(stage, "*", SearchOption.AllDirectories)
+                .Select(file => Path.GetRelativePath(stage, file).Replace('\\', '/'))
+                .Where(relative => relative == relativeManifest || !(relative.StartsWith("versions/", StringComparison.Ordinal)
+                    && relative.EndsWith(".json", StringComparison.Ordinal) && File.Exists(ForgeInstallService.Contained(original.RootDirectory, relative))))
+                .ToArray();
+            var removals = original.ManagedMods.Where(mod => editPlan.Kind != MinecraftInstallEditKind.ComponentsOnly
+                    || mod.Loader is { } kind && editPlan.ChangedLoaders.Contains(kind))
+                .ToDictionary(mod => mod.Path.Replace('\\', '/'), mod => mod.Sha256, MinecraftLibraryService.PathComparer);
+            if (removals.Keys.Any(path => !path.StartsWith(original.ModsRelativeDirectory + "/", StringComparison.Ordinal)))
+                throw new InvalidDataException("受管理 Mod 的路径无效。");
+            var publication = await InstallPublicationJournal.PrepareAsync(original.RootDirectory, stage, instance, generatedFiles, removals, token).ConfigureAwait(false);
+            try { await publication.ApplyAsync(token).ConfigureAwait(false); }
+            catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)
             {
-                if (rollback.Any(item => MinecraftLibraryService.PathComparer.Equals(item.Destination, destination))) return;
-                string? backup = null;
-                if (File.Exists(destination))
-                {
-                    backup = Path.Combine(rollbackRoot, rollback.Count.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                    File.Copy(destination, backup);
-                }
-                rollback.Add((destination, backup));
+                // Cancellation compensates too. A failed compensation retains the durable stage.
+                try { await publication.RollbackAsync(CancellationToken.None).ConfigureAwait(false); }
+                catch (Exception rollbackError) when (rollbackError is not OutOfMemoryException and not AccessViolationException)
+                { throw new AggregateException("安装发布及回滚未完成，已保留事务备份。", error, rollbackError); }
+                safeToRemove = true;
+                throw;
             }
-            try
-            {
-                foreach (var mod in original.ManagedMods)
-                {
-                    if (editPlan.Kind == MinecraftInstallEditKind.ComponentsOnly && (mod.Loader is null || !editPlan.ChangedLoaders.Contains(mod.Loader.Value))) continue;
-                    if (!mod.Path.Replace('\\', '/').StartsWith(original.ModsRelativeDirectory + "/", StringComparison.Ordinal)) throw new InvalidDataException("受管理 Mod 的路径无效。");
-                    string target = ForgeInstallService.Contained(original.RootDirectory, mod.Path);
-                    if (!File.Exists(target)) continue;
-                    await using var stream = File.OpenRead(target);
-                    string hash = Convert.ToHexString(await SHA256.HashDataAsync(stream, token).ConfigureAwait(false));
-                    if (hash != mod.Sha256) continue; // Preserve user-modified artifacts.
-                    await stream.DisposeAsync().ConfigureAwait(false);
-                    PreserveMod(target);
-                    File.Delete(target);
-                }
-                foreach (string file in generatedFiles)
-                {
-                    token.ThrowIfCancellationRequested();
-                    if (MinecraftLibraryService.PathComparer.Equals(file, stagedManifest)) continue;
-                    string relative = Path.GetRelativePath(stage, file);
-                    string destination = ForgeInstallService.Contained(original.RootDirectory, relative);
-                    string portable = relative.Replace('\\', '/');
-                    if (portable.StartsWith("versions/", StringComparison.Ordinal) && portable.EndsWith(".json", StringComparison.Ordinal)
-                        && File.Exists(destination)) continue;
-                    if (portable.StartsWith(original.ModsRelativeDirectory + "/", StringComparison.Ordinal))
-                    {
-                        if (File.Exists(destination) && !rollback.Any(item => MinecraftLibraryService.PathComparer.Equals(item.Destination, destination)))
-                            throw new InvalidDataException("已有同名 Mod 未受此版本管理或已被修改：" + Path.GetFileName(destination));
-                        PreserveMod(destination);
-                    }
-                    Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-                    await CopyAtomicAsync(file, destination, token).ConfigureAwait(false);
-                }
-                await CopyAtomicAsync(stagedManifest, targetManifest, token).ConfigureAwait(false);
-                committed = true;
-            }
-            finally
-            {
-                if (!committed)
-                    foreach (var item in rollback)
-                        if (item.Backup is null) TryDelete(item.Destination);
-                        else File.Copy(item.Backup, item.Destination, overwrite: true);
-            }
+            safeToRemove = true;
             if (command.NewInstanceName is null || command.NewInstanceName == instance)
             {
                 task.Complete($"已修改 {instance}");
@@ -253,7 +216,15 @@ public sealed partial class MinecraftInstallService
             }
             return new(instance, Path.GetDirectoryName(targetManifest)!);
         }
-        finally { try { Directory.Delete(stage, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
+        finally
+        {
+            // An interrupted/failed publication owns the only durable originals. Keep it until resolved.
+            if (safeToRemove || !File.Exists(Path.Combine(stage, ".publication", "progress.json")))
+            {
+                Management.RecoveryBlobStore.CheckLinks(stage);
+                try { Directory.Delete(stage, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            }
+        }
     }
 
     private static async Task CopyAtomicAsync(string source, string destination, CancellationToken token)

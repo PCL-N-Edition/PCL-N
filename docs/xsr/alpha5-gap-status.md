@@ -65,3 +65,5 @@ Patch 改写器独立推进契约设计与编译器验证，不能以空 Patch.p
 - `d8b8e748` 修复 Java 自动下载测试使用立即退出进程的竞态。[XSR CI 36107225152](https://github.com/PCL-N-Edition/PCL-N/actions/runs/36107225152) 完整通过，含 NativeAOT Services、Desktop/OOBE、trim 和跨平台 JNI 冒烟。这些不是实际 Minecraft 世界验证。
 - 整合包试跑 [36109456728](https://github.com/PCL-N-Edition/PCL-N/actions/runs/36109456728) 在 `d58440ac` 通过：修复 Xvfb 作为容器 PID 1 的等待问题及导入目标根目录初始化后，完成真实安装、JNI 启动和约 90 秒采样。产物包含 3 个连续窗口、180 次观察和终止标记；属于强制停止、未确认世界阶段、模组清单不完整的运行，`trainingEligible=false`，不能用于训练或宣称游戏完整验收。
 - 初始训练数据集、确定性世界场景、模组组合学习、独立保留集验证与新模型产品准入均未完成；不得以采样框架或实验模型上线代替验收。
+
+新增可恢复下载安装要求见 `resumable-installation.md`：取消/暂停、修改回滚/暂停、异常退出后自动续作及持久步骤检查点。修改安装已接入持久文件发布/撤回事务，并通过独立子进程强制终止测试；退出选择、下载检查点和启动自动续作仍未实现。
