@@ -18,7 +18,8 @@ public sealed partial class MinecraftInstallService
         foreach (var addon in command.Addons ?? [])
         {
             if (!plan.ChangedLoaders.Contains(addon.Kind)) continue;
-            var downloads = await ResolveAddonDownloadsAsync(command.GameVersion, addon, token).ConfigureAwait(false);
+            var downloads = await ResolveAddonDownloadsAsync(command.GameVersion, addon, token,
+                new PersistentInstallMetadataSource(stage, _metadata)).ConfigureAwait(false);
             var first = downloads[0];
             string path = ForgeInstallService.Contained(stage, original.ModsRelativeDirectory + "/" + SafeName(first.FileName));
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);

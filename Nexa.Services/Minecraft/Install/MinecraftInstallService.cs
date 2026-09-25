@@ -338,7 +338,7 @@ public sealed partial class MinecraftInstallService : IDisposable
             foreach (MinecraftInstallAddon addon in command.Addons)
             {
                 IReadOnlyList<InstallDownload> downloads = await ResolveAddonDownloadsAsync(
-                    game, addon, token).ConfigureAwait(false);
+                    game, addon, token, metadata as PersistentInstallMetadataSource).ConfigureAwait(false);
                 InstallDownload download = downloads[0];
                 Directory.CreateDirectory(modsDirectory);
                 managedModKinds[Path.Combine(modsDirectory, SafeName(download.FileName))] = addon.Kind;
@@ -601,8 +601,11 @@ public sealed partial class MinecraftInstallService : IDisposable
 
 
     private async Task<IReadOnlyList<InstallDownload>> ResolveAddonDownloadsAsync(
-        string gameVersion, MinecraftInstallAddon addon, CancellationToken token)
+        string gameVersion, MinecraftInstallAddon addon, CancellationToken token, PersistentInstallMetadataSource? persistent = null)
     {
+        if (persistent is not null)
+            return await persistent.FetchAddonDownloadsAsync(gameVersion, addon,
+                cancellation => ResolveAddonDownloadsAsync(gameVersion, addon, cancellation), token).ConfigureAwait(false);
         if (addon.Downloads is { Count: > 0 })
         {
             foreach (InstallDownload selected in addon.Downloads)

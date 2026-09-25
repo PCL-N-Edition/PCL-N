@@ -5,6 +5,41 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static async ValueTask PersistentAddonDownloadsFreezeMergedSourcesAndRejectInvalidIdentity()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string stage = await MetadataTaskStage(root);
+            var cache = new PersistentInstallMetadataSource(stage, new FakeMetadata());
+            var addon = new MinecraftInstallAddon(InstallLoader.FabricApi, "0.100");
+            InstallDownload[] downloads = [new("Modrinth", "api.jar", new("https://cdn.modrinth.com/api.jar"), new('A', 40), 100),
+                new("CurseForge", "api.jar", new("https://edge.forgecdn.net/api.jar"), new('A', 40), 100)];
+            await cache.FetchAddonDownloadsAsync("1.21.1", addon, _ => Task.FromResult<IReadOnlyList<InstallDownload>>(downloads), default);
+            downloads[0] = downloads[0] with { Size = 999 };
+            var reopened = new PersistentInstallMetadataSource(stage, new FakeMetadata());
+            var frozen = await reopened.FetchAddonDownloadsAsync("1.21.1", addon,
+                _ => throw new InvalidOperationException("Frozen component re-resolved."), default);
+            AssertEqual(2, frozen.Count); AssertEqual(100L, frozen[0].Size); AssertEqual("CurseForge", frozen[1].Source);
+            foreach (var invalid in new[] { downloads[0] with { FileName = "../evil.jar" }, downloads[0] with { Url = new("http://example.com/api.jar") },
+                downloads[0] with { Sha1 = "bad" }, downloads[0] with { Size = -1 } })
+            {
+                try
+                {
+                    await cache.FetchAddonDownloadsAsync("1.21.1", addon with { Version = "invalid" },
+                        _ => Task.FromResult<IReadOnlyList<InstallDownload>>([invalid]), default);
+                    throw new InvalidOperationException("Invalid component identity persisted.");
+                }
+                catch (InvalidDataException) { }
+            }
+            // Failed resolution has no durable entry and may subsequently resolve successfully.
+            var retried = await cache.FetchAddonDownloadsAsync("1.21.1", addon with { Version = "invalid" },
+                _ => Task.FromResult<IReadOnlyList<InstallDownload>>([downloads[1]]), default);
+            AssertEqual("CurseForge", retried.Single().Source);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     private static async Task<string> MetadataTaskStage(string root)
     {
         string stage = Path.Combine(root, ".nexa-modify", Guid.NewGuid().ToString("N"));

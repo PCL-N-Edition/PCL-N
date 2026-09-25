@@ -19,6 +19,36 @@ internal sealed class PersistentInstallMetadataSource(string stage, IMinecraftIn
     public Task<JsonObject> FetchAssetIndexJsonAsync(string indexUrl, CancellationToken cancellationToken) =>
         GetAsync("assets:" + indexUrl, token => source.FetchAssetIndexJsonAsync(indexUrl, token), cancellationToken);
 
+    internal async Task<IReadOnlyList<InstallDownload>> FetchAddonDownloadsAsync(string game, MinecraftInstallAddon addon,
+        Func<CancellationToken, Task<IReadOnlyList<InstallDownload>>> fetch, CancellationToken token)
+    {
+        string request = "addon:" + JsonSerializer.Serialize(new[] { addon.Kind.ToString(), game, addon.Version }, MetadataJsonContext.Default.StringArray);
+        var document = await GetAsync(request, async cancellation =>
+        {
+            var fetched = await fetch(cancellation).ConfigureAwait(false);
+            if (fetched.Count is < 1 or > 16) throw new InvalidDataException("安装附属组件下载数量无效。");
+            var downloads = fetched.ToArray();
+            ValidateDownloads(downloads);
+            return new JsonObject { ["downloads"] = JsonSerializer.SerializeToNode(downloads, MetadataJsonContext.Default.InstallDownloadArray) };
+        }, token).ConfigureAwait(false);
+        var result = document["downloads"]?.Deserialize(MetadataJsonContext.Default.InstallDownloadArray)
+            ?? throw new InvalidDataException("安装附属组件记录缺少下载信息。");
+        ValidateDownloads(result);
+        return Array.AsReadOnly(result);
+    }
+
+    private static void ValidateDownloads(InstallDownload[] downloads)
+    {
+        if (downloads.Length is < 1 or > 16) throw new InvalidDataException("安装附属组件下载数量无效。");
+        foreach (var item in downloads)
+            if (item is null || string.IsNullOrWhiteSpace(item.Source) || item.Source.Length > 64 || item.Source.Any(char.IsControl)
+                || !MinecraftVersionPaths.IsSafeReference(item.FileName)
+                || item.Url is not { IsAbsoluteUri: true } url || url.Scheme != Uri.UriSchemeHttps || url.UserInfo.Length != 0 || url.AbsoluteUri.Length > 8192
+                || item.Size is < 0 or > RecoveryBlobStore.MaxFileBytes
+                || item.Sha1 is { } hash && (hash.Length != 40 || !hash.All(char.IsAsciiHexDigit)))
+                throw new InvalidDataException("安装附属组件下载身份无效。");
+    }
+
     private async Task<JsonObject> GetAsync(string request, Func<CancellationToken, Task<JsonObject>> fetch, CancellationToken token)
     {
         if (request.Length > 16384) throw new InvalidDataException("安装元数据请求过长。");
@@ -81,4 +111,5 @@ internal sealed class PersistentInstallMetadataSource(string stage, IMinecraftIn
 }
 
 [System.Text.Json.Serialization.JsonSerializable(typeof(string[]))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(InstallDownload[]))]
 internal sealed partial class MetadataJsonContext : System.Text.Json.Serialization.JsonSerializerContext;
