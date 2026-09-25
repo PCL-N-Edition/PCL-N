@@ -9,6 +9,47 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private sealed class ConsentBlockedTransport : ITelemetryTransport
+    {
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public async Task<bool> SendAsync(IReadOnlyList<TelemetryEvent> batch, CancellationToken cancellationToken = default)
+        {
+            Started.SetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return true;
+        }
+    }
+
+    private static async ValueTask DiagnosticRevocationPreservesNecessaryFacts()
+    {
+        var schema = LauncherDefaults.CreateSchema();
+        var builder = new XsrStateStoreBuilder();
+        SettingsService.DeclareState(builder, schema);
+        TelemetryService.DeclareState(builder);
+        var store = builder.Build();
+        var settings = new SettingsService(store, schema, new InMemorySettingsPort());
+        using var telemetry = new TelemetryService(store);
+        using var session = new LauncherTelemetrySession(telemetry, settings,
+            new RecordingTransport { Accept = false }, CreateLogService(), "2.0.0");
+        AssertFalse(telemetry.Consent);
+        session.Record("game.started", "ok");
+        AssertEqual(1, telemetry.PendingCount);
+        settings.SetValue("TelemetryExperienceProgram", true);
+        session.Record("game.started", "ok");
+        var blocked = new ConsentBlockedTransport();
+        var flush = telemetry.FlushAsync(blocked);
+        await blocked.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        settings.SetValue("TelemetryExperienceProgram", false);
+        try { await flush; throw new InvalidOperationException("Diagnostic upload was not cancelled."); }
+        catch (OperationCanceledException) { }
+        AssertEqual(1, telemetry.PendingCount);
+        var accepted = new RecordingTransport();
+        await telemetry.FlushAsync(accepted);
+        AssertTrue(accepted.Batches.Single().All(item => item.Level == TelemetryLevel.Necessary));
+        AssertEqual("app.started", accepted.Batches.Single().Single().Name);
+        AssertEqual(0, telemetry.PendingCount);
+    }
+
     private static async ValueTask TelemetryLifecycleRecordsOnlyBoundedFacts()
     {
         var builder = new XsrStateStoreBuilder();

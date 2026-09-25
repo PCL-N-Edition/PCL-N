@@ -201,6 +201,7 @@ internal static class Program
                 logging.Info("Launcher", $"Session started pid={Environment.ProcessId} version={ResolveInformationalVersion()} channel={channel} level={logging.MaximumLevel} runtime={Environment.Version} os={System.Runtime.InteropServices.RuntimeInformation.OSDescription} arch={System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}");
                 logging.Info("Launcher", "Foundation composition started; loading persisted profiles and settings.");
             });
+        using var telemetryLifetime = host.Telemetry;
         // The session lifecycle narrates startup/shutdown milestones at Info: every subsystem
         // the composition root brings up (and later stops) is a phase on one shared timeline.
         XsrLifecycle session = new("LauncherSession", operationLog.Lifecycle);

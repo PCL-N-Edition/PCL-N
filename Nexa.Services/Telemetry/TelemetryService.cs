@@ -5,11 +5,14 @@ using Nexa.Xsr.State;
 
 namespace Nexa.Services.Telemetry;
 
-/// <summary>One opt-in telemetry event with its free-form properties.</summary>
+/// <summary>One classified event; production transport enforces a fixed field allowlist.</summary>
 public sealed record TelemetryEvent(
     string Name,
     DateTimeOffset Timestamp,
-    IReadOnlyDictionary<string, string> Properties);
+    IReadOnlyDictionary<string, string> Properties)
+{
+    public TelemetryLevel Level { get; init; } = TelemetryLevel.Diagnostic;
+}
 
 /// <summary>
 /// Upload port for telemetry batches. Implementations return whether the batch was accepted;
@@ -22,12 +25,9 @@ public interface ITelemetryTransport
 }
 
 /// <summary>
-/// The telemetry capability: strictly opt-in event collection with a bounded local buffer and
-/// an explicit flush. Without consent nothing is ever recorded — the legacy
-/// `TelemetryExperienceProgram` default of false is a hard rule, not a default. The pending
-/// count publishes as one state cell so surfaces read it like any other fact.
+/// Separately bounded necessary and diagnostic queues. Consent gates diagnostics only.
 /// </summary>
-public sealed class TelemetryService
+public sealed class TelemetryService : IDisposable
 {
     public const string OwnerName = "Nexa.Services.Telemetry";
 
@@ -37,9 +37,13 @@ public sealed class TelemetryService
     private readonly object _gate = new();
     private readonly int _capacity;
     private readonly Queue<TelemetryEvent> _events;
+    private readonly Queue<TelemetryEvent> _necessary = new();
+    private CancellationTokenSource? _diagnosticConsent;
+    private bool _disposed;
     private readonly XsrStateStore _store;
     private readonly XsrStateId _pendingId;
     private int _consentField;
+    private bool _diagnosticsRequired;
     private int _flushing;
 
     /// <summary>
@@ -64,20 +68,44 @@ public sealed class TelemetryService
 
     public XsrStateStore StateStore => _store;
 
-    /// <summary>Whether the user granted telemetry consent. Defaults to false.</summary>
+    internal void RequireDiagnostics()
+    {
+        lock (_gate)
+        {
+            _diagnosticsRequired = true;
+            Consent = true;
+        }
+    }
+
+    /// <summary>Effective diagnostic consent; prerelease policy cannot be disabled by callers.</summary>
     public bool Consent
     {
         get => Volatile.Read(ref _consentField) != 0;
         set
         {
+            CancellationTokenSource? revoked = null;
             lock (_gate)
             {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                value |= _diagnosticsRequired;
+                if (Consent == value) return;
                 Volatile.Write(ref _consentField, value ? 1 : 0);
                 if (!value)
                 {
+                    revoked = _diagnosticConsent;
+                    _diagnosticConsent = null;
                     _events.Clear();
-                    _store.Publish(_pendingId, 0, CancellationToken.None);
+                    _store.Publish(_pendingId, _necessary.Count, CancellationToken.None);
                 }
+                else
+                {
+                    _diagnosticConsent = new();
+                }
+            }
+            if (revoked is not null)
+            {
+                revoked.Cancel();
+                revoked.Dispose();
             }
         }
     }
@@ -89,7 +117,7 @@ public sealed class TelemetryService
         {
             lock (_gate)
             {
-                return _events.Count;
+                return _events.Count + _necessary.Count;
             }
         }
     }
@@ -99,27 +127,39 @@ public sealed class TelemetryService
     /// is bounded: the oldest event is dropped when capacity is reached.
     /// </summary>
     public void Record(string name, IReadOnlyDictionary<string, string>? properties = null)
+        => RecordCore(name, properties, TelemetryLevel.Diagnostic);
+
+    internal void RecordNecessary(string name, IReadOnlyDictionary<string, string> properties)
+    {
+        if (TelemetryEventCatalog.Level(name) != TelemetryLevel.Necessary)
+            throw new ArgumentException("Event is not necessary telemetry.", nameof(name));
+        RecordCore(name, properties, TelemetryLevel.Necessary);
+    }
+
+    private void RecordCore(string name, IReadOnlyDictionary<string, string>? properties, TelemetryLevel level)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        if (!Consent)
+        if (level == TelemetryLevel.Diagnostic && !Consent)
         {
             return;
         }
 
         lock (_gate)
         {
-            if (!Consent) return;
-            if (_events.Count >= _capacity)
+            if (_disposed) return;
+            if (level == TelemetryLevel.Diagnostic && !Consent) return;
+            var queue = level == TelemetryLevel.Necessary ? _necessary : _events;
+            if (queue.Count >= _capacity)
             {
-                _events.Dequeue();
+                queue.Dequeue();
             }
 
-            _events.Enqueue(new TelemetryEvent(
+            queue.Enqueue(new TelemetryEvent(
                 name,
                 DateTimeOffset.UtcNow,
                 new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(
-                    properties is null ? new(StringComparer.Ordinal) : new Dictionary<string, string>(properties, StringComparer.Ordinal))));
-            _store.Publish(_pendingId, _events.Count, CancellationToken.None);
+                    properties is null ? new(StringComparer.Ordinal) : new Dictionary<string, string>(properties, StringComparer.Ordinal))) { Level = level });
+            _store.Publish(_pendingId, _events.Count + _necessary.Count, CancellationToken.None);
         }
     }
 
@@ -139,17 +179,20 @@ public sealed class TelemetryService
     private async Task<int> FlushCoreAsync(ITelemetryTransport transport, CancellationToken cancellationToken)
     {
         List<TelemetryEvent> batch;
+        CancellationTokenSource? consent = null;
         lock (_gate)
         {
-            if (!Consent || _events.Count == 0)
+            if (_disposed || _necessary.Count + _events.Count == 0)
             {
                 return 0;
             }
 
-            batch = [.. _events.Take(Math.Max(1, transport.MaximumBatchSize))];
+            batch = [.. _necessary.Concat(_events).Take(Math.Max(1, transport.MaximumBatchSize))];
+            if (batch.Any(item => item.Level == TelemetryLevel.Diagnostic))
+                consent = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _diagnosticConsent!.Token);
         }
-
-        if (!await transport.SendAsync(batch, cancellationToken).ConfigureAwait(false))
+        using var consentLifetime = consent;
+        if (!await transport.SendAsync(batch, consent?.Token ?? cancellationToken).ConfigureAwait(false))
         {
             return 0;
         }
@@ -157,21 +200,32 @@ public sealed class TelemetryService
         lock (_gate)
         {
             // Only drop the events that were actually sent: records racing the flush stay.
-            for (int index = 0; index < batch.Count && _events.Count > 0; index++)
+            foreach (var queue in new[] { _necessary, _events })
             {
-                if (ReferenceEquals(_events.Peek(), batch[index]))
-                {
-                    _events.Dequeue();
-                }
-                else
-                {
-                    break;
-                }
+                var retained = queue.Where(item => !batch.Any(sent => ReferenceEquals(item, sent))).ToArray();
+                queue.Clear();
+                foreach (var item in retained) queue.Enqueue(item);
             }
 
-            _store.Publish(_pendingId, _events.Count, CancellationToken.None);
+            _store.Publish(_pendingId, _events.Count + _necessary.Count, CancellationToken.None);
             return batch.Count;
         }
+    }
+
+    public void Dispose()
+    {
+        CancellationTokenSource? consent;
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            consent = _diagnosticConsent;
+            _diagnosticConsent = null;
+            _events.Clear();
+            _necessary.Clear();
+        }
+        consent?.Cancel();
+        consent?.Dispose();
     }
 
     /// <summary>Serializes one batch into the wire JSON shape.</summary>
@@ -184,6 +238,7 @@ public sealed class TelemetryService
         {
             writer.WriteStartObject();
             writer.WriteString("name", @event.Name);
+            writer.WriteString("level", @event.Level == TelemetryLevel.Necessary ? "necessary" : "diagnostic");
             writer.WriteNumber("timestamp", @event.Timestamp.ToUnixTimeMilliseconds());
             writer.WriteStartObject("properties");
             foreach ((string key, string value) in @event.Properties.OrderBy(static pair => pair.Key, StringComparer.Ordinal))

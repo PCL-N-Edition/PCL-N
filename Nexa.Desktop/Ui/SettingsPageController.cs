@@ -224,6 +224,11 @@ internal sealed partial class SettingsPageController : IDisposable
         _editors.Clear(); _inheritButtons.Clear(); _selectors.Clear(); _argumentEditors.Clear(); _argumentActions.Clear(); _choices.Clear();
         if (_selected == "platform") { BuildPlatformCapabilities(); return; }
         if (_selected == "advanced") BuildUpdateCard();
+        if (_selected == "privacy")
+        {
+            var notice = Text(_sections, "必要遥测始终启用，仅包含版本、系统、架构及分类运行结果。诊断信息属于用户体验改进计划；正式版可关闭，测试版必须启用。均不上传账户、文件路径或原始日志。", 12, Muted, height: 72);
+            _shell.Tree.GetComponent<XsrUiVisualStyle>(notice)!.WrapText = true;
+        }
         var entries = _catalog!.Entries.Where(item => item.Scope == "global" && item.Page == _selected && (_instanceDirectory is null || item.Definition?.InstanceOverride == true) && !item.IsRuntimeDetail && (_developer || !item.DeveloperOnly)).ToArray();
         foreach (var section in entries.GroupBy(item => (Section: item.DeveloperOnly ? "开发者" : item.Section, item.DeveloperOnly)))
         {
@@ -269,7 +274,7 @@ internal sealed partial class SettingsPageController : IDisposable
         _shell.Tree.GetComponent<XsrUiElement>(row)!.Padding = new(0, 14, 0, 14);
         var label = Stack(row, "SettingsLabel." + entry.Id, XsrUiOrientation.Vertical, 3);
         _shell.Tree.GetComponent<XsrUiElement>(label)!.Weight = 1;
-        Text(label, DisplayLabel(entry.Label), 14, Ink, height: 22, weight: 500);
+        Text(label, entry.SettingKey == "diagnostics.telemetry" ? "诊断信息 · 用户体验改进计划" : DisplayLabel(entry.Label), 14, Ink, height: 22, weight: 500);
         if (SettingHint(entry.SettingKey) is { } hint)
         {
             var description = Text(label, hint, 11, Muted, height: 18);

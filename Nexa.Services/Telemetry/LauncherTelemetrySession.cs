@@ -2,11 +2,12 @@ using System.Runtime.InteropServices;
 using Nexa.Services.Logging;
 using Nexa.Services.Minecraft.Process;
 using Nexa.Services.Settings;
+using Nexa.Services.Tasks;
 using Nexa.Xsr.State;
 
 namespace Nexa.Services.Telemetry;
 
-/// <summary>Session-local, opt-in upload lifetime. No stable installation identifier.</summary>
+/// <summary>Session-local tiered upload lifetime. No stable installation identifier.</summary>
 public sealed class LauncherTelemetrySession : IDisposable, IXsrStateObserver, ILogSink
 {
     private readonly TelemetryService _telemetry;
@@ -15,18 +16,21 @@ public sealed class LauncherTelemetrySession : IDisposable, IXsrStateObserver, I
     private readonly LogService _log;
     private readonly string _version;
     private readonly CancellationTokenSource _stop = new();
-    private CancellationTokenSource _consent = new();
     private readonly object _gate = new();
     private bool _disposed;
     private readonly Dictionary<Guid, bool> _processes = [];
     private long _processRevision = -1;
+    private readonly Dictionary<string, bool> _tasks = new(StringComparer.Ordinal);
+    private long _taskRevision = -1;
 
     public LauncherTelemetrySession(TelemetryService telemetry, SettingsService settings,
         ITelemetryTransport transport, LogService log, string version)
     {
         _telemetry = telemetry; _settings = settings; _transport = transport; _log = log; _version = version.Split('+')[0];
+        if (LauncherTelemetryPolicy.IsRequired(_version)) telemetry.RequireDiagnostics();
         settings.Changed += OnSettingsChanged;
         OnSettingsChanged(0);
+        Record("app.started", "ok");
         _ = UploadAsync();
     }
 
@@ -36,27 +40,22 @@ public sealed class LauncherTelemetrySession : IDisposable, IXsrStateObserver, I
         {
             if (_disposed) return;
             bool consent = LauncherTelemetryPolicy.IsRequired(_version) || _settings.GetValue<bool>("TelemetryExperienceProgram").Value;
-            bool previous = _telemetry.Consent;
             _telemetry.Consent = consent;
-            if (!consent) _consent.Cancel();
-            else if (!previous)
-            {
-                _consent.Dispose(); _consent = new();
-                Record("app.started", "ok");
-            }
         }
     }
 
     public void Record(string name, string result)
     {
-        if (Volatile.Read(ref _disposed) || !_telemetry.Consent) return;
-        _telemetry.Record(name, new Dictionary<string, string>(StringComparer.Ordinal)
+        if (Volatile.Read(ref _disposed) || TelemetryEventCatalog.Level(name) is not { } level) return;
+        var properties = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["version"] = _version,
             ["os"] = OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : "linux",
             ["arch"] = RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
             ["result"] = result,
-        });
+        };
+        if (level == TelemetryLevel.Necessary) _telemetry.RecordNecessary(name, properties);
+        else _telemetry.Record(name, properties);
     }
 
     public void Write(LogEntry entry, string formattedLine)
@@ -67,6 +66,36 @@ public sealed class LauncherTelemetrySession : IDisposable, IXsrStateObserver, I
 
     public void OnChanged(XsrStateChange change)
     {
+        if (change.SemanticId == TaskCenterStateContract.EntriesKey)
+        {
+            var tasks = _telemetry.StateStore.ReadCollection<TaskCenterEntry>(change.Id);
+            lock (_gate)
+            {
+                if (_disposed || tasks.Revision <= _taskRevision) return;
+                _taskRevision = tasks.Revision;
+                var present = tasks.Items.Select(item => item.TaskId).ToHashSet(StringComparer.Ordinal);
+                foreach (var id in _tasks.Keys.Where(id => !present.Contains(id)).ToArray()) _tasks.Remove(id);
+                foreach (var task in tasks.Items)
+                {
+                    bool found = _tasks.TryGetValue(task.TaskId, out bool ended);
+                    if (!found || (ended && !task.IsTerminal))
+                    {
+                        _tasks[task.TaskId] = false;
+                        ended = false;
+                        Record("task.started", "ok");
+                    }
+                    if (ended || !task.IsTerminal) continue;
+                    _tasks[task.TaskId] = true;
+                    Record("task.finished", task.State switch
+                    {
+                        TaskCenterEntryState.Finished => "ok",
+                        TaskCenterEntryState.Canceled => "cancelled",
+                        _ => "failed"
+                    });
+                }
+            }
+            return;
+        }
         if (change.SemanticId != MinecraftProcessStateComposition.SessionsKey || Volatile.Read(ref _disposed)) return;
         var snapshot = _telemetry.StateStore.ReadCollection<MinecraftProcessSnapshot>(change.Id);
         lock (_gate)
@@ -102,12 +131,10 @@ public sealed class LauncherTelemetrySession : IDisposable, IXsrStateObserver, I
         {
             do
             {
-                CancellationToken consent;
-                lock (_gate) { if (_disposed) return; consent = _consent.Token; }
-                using var linked = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token, consent);
-                try { await _telemetry.FlushAsync(_transport, linked.Token).ConfigureAwait(false); }
-                catch (OperationCanceledException) when (linked.IsCancellationRequested) { }
-                catch (Exception error) when (error is HttpRequestException or IOException or OperationCanceledException)
+                lock (_gate) { if (_disposed) return; }
+                try { await _telemetry.FlushAsync(_transport, _stop.Token).ConfigureAwait(false); }
+                catch (OperationCanceledException) { }
+                catch (Exception error) when (error is HttpRequestException or IOException)
                 { _log.Debug("Telemetry", "遥测暂未发送，将在下个周期重试。"); }
             } while (await timer.WaitForNextTickAsync(_stop.Token).ConfigureAwait(false));
         }
@@ -121,7 +148,7 @@ public sealed class LauncherTelemetrySession : IDisposable, IXsrStateObserver, I
             if (_disposed) return;
             _disposed = true;
             _settings.Changed -= OnSettingsChanged;
-            _stop.Cancel(); _consent.Cancel();
+            _stop.Cancel();
         }
     }
 }

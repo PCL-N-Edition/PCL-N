@@ -41,7 +41,8 @@ internal static partial class Program
                 AssertEqual(chosen, FindByKey(shell, scene, "SetupPath").Text);
                 Click("next"); Click("next");
                 scene = shell.Render(new(760, 500));
-                AssertTrue(FindByKey(shell, scene, "SetupSummary").Text!.Contains("共享基本使用数据", StringComparison.Ordinal));
+                AssertTrue(FindByKey(shell, scene, "SetupSummary").Text!.Contains("必要遥测：已启用", StringComparison.Ordinal));
+                AssertTrue(FindByKey(shell, scene, "SetupSummary").Text!.Contains("诊断信息：已启用", StringComparison.Ordinal));
                 var next = FindByKey(shell, scene, "SetupNext");
                 AssertEqual(XsrUiTextAlignment.Center, shell.Tree.GetComponent<XsrUiVisualStyle>(next.Entity)!.TextAlignment);
                 AssertTrue(next.Rect.Y + next.Rect.Height <= 500);

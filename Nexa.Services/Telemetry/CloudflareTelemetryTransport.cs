@@ -12,7 +12,7 @@ public sealed partial class CloudflareTelemetryTransport(HttpClient client) : IT
     public async Task<bool> SendAsync(IReadOnlyList<TelemetryEvent> batch, CancellationToken cancellationToken = default)
     {
         if (batch.Count > MaximumBatchSize || batch.Any(item => !IsAllowed(item))) return false;
-        using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.pcln.top/v1/launcher/telemetry");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.pcln.top/v2/launcher/telemetry");
         request.Content = new StringContent(TelemetryService.SerializeBatch(batch), Encoding.UTF8);
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
@@ -21,7 +21,7 @@ public sealed partial class CloudflareTelemetryTransport(HttpClient client) : IT
     }
 
     internal static bool IsAllowed(TelemetryEvent item) =>
-        item.Name is "app.started" or "app.failure" or "game.started" or "game.exited"
+        TelemetryEventCatalog.Level(item.Name) == item.Level
         && item.Properties.Count == 4
         && item.Properties.Keys.All(key => key is "version" or "os" or "arch" or "result")
         && item.Properties.Values.All(value => value.Length <= 64)

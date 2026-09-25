@@ -21,6 +21,8 @@ internal static partial class Program
             var telemetry = CreateTelemetryService();
             using var session = new LauncherTelemetrySession(telemetry, settings, new RecordingTransport(), CreateLogService(), version);
             AssertEqual(version != "2.0.0", telemetry.Consent);
+            telemetry.Consent = false;
+            AssertEqual(version != "2.0.0", telemetry.Consent);
             settings.SetValue("TelemetryExperienceProgram", true);
             settings.SetValue("TelemetryExperienceProgram", false);
             AssertEqual(version != "2.0.0", telemetry.Consent);
@@ -113,7 +115,7 @@ internal static partial class Program
         AssertEqual(0, transport.Batches.Count);
         var properties = new Dictionary<string, string>
         { ["version"] = "2.0.0.alpha.4", ["os"] = "windows", ["arch"] = "x64", ["result"] = "ok" };
-        var fact = new TelemetryEvent("app.started", DateTimeOffset.UtcNow, properties);
+        var fact = new TelemetryEvent("app.started", DateTimeOffset.UtcNow, properties) { Level = TelemetryLevel.Necessary };
         AssertTrue(CloudflareTelemetryTransport.IsAllowed(fact));
         properties["token"] = "must-never-leave-the-device";
         AssertFalse(CloudflareTelemetryTransport.IsAllowed(fact));

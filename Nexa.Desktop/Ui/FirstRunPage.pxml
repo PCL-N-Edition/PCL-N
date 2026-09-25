@@ -4,7 +4,7 @@
     <StackPanel Orientation="Vertical" Weight="1" Spacing="14" Scroll="true">
       <ContentHost Height="12" />
       <Text Key="SetupTitle" Content="欢迎使用 NexaCL" Height="52" />
-      <Text Key="SetupDescription" Content="先完成几项设置，然后开始你的 Minecraft。" Height="76" />
+      <Text Key="SetupDescription" Content="先完成几项设置，然后开始你的 Minecraft。" Height="108" />
       <StackPanel Key="SetupDirectory" Orientation="Vertical" Spacing="12" IsVisible="false">
         <Text Key="SetupPath" Content="" Height="64" />
         <Button Key="SetupBrowse" Label="选择文件夹" Content="选择文件夹" Icon="lucide/folder-open" Command="ui.setup.browse" Width="160" Height="42" />
@@ -13,7 +13,7 @@
         <Button Key="SetupPrivate" Label="不共享使用数据" Content="不共享使用数据" Command="ui.setup.private" Height="48" />
         <Button Key="SetupShare" Label="共享基本使用数据" Content="共享基本使用数据" Command="ui.setup.share" Height="48" />
       </StackPanel>
-      <Text Key="SetupSummary" Content="" Height="112" IsVisible="false" />
+      <Text Key="SetupSummary" Content="" Height="144" IsVisible="false" />
       <Text Key="SetupError" Content="" Height="64" IsVisible="false" />
     </StackPanel>
     <StackPanel Orientation="Horizontal" Height="44" Spacing="12">

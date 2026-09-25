@@ -130,21 +130,21 @@ internal sealed class FirstRunController : IDisposable
     }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     private void Update()
     {
-        string[] labels = ["欢迎", "数据位置", "用户体验计划", "完成"];
-        string[] titles = ["欢迎使用 NexaCL", "为数据选择一个位置", "由你决定是否共享", "准备好了"];
+        string[] labels = ["欢迎", "数据位置", "数据与诊断", "完成"];
+        string[] titles = ["欢迎使用 NexaCL", "为数据选择一个位置", "选择诊断信息的共享方式", "准备好了"];
         if (_status.TelemetryRequired) titles[2] = "帮助改进测试版本";
         string[] descriptions = ["先完成几项设置，然后开始你的 Minecraft。",
             "账户、设置、缓存和日志将保存在这里。游戏目录单独管理。" + (_status.LocationLocked ? "\n此位置由环境变量指定。" : "\n更换位置时，请选择一个空文件夹。"),
-            "共享应用版本、操作系统、处理器架构和运行结果，帮助改进 NexaCL。\n不包含账户、文件路径或原始日志。可随时在设置中关闭。",
+            "必要遥测始终启用，用于统计应用运行和更新结果。\n可选诊断信息用于用户体验改进计划，包含游戏和任务运行结果，可在设置中关闭。两者均不包含账户、路径或原始日志。",
             "确认以下选择。开始使用后，NexaCL 会自动重新打开。"];
-        if (_status.TelemetryRequired) descriptions[2] = "CI、Alpha 和 Beta 测试版本必须共享基本使用数据。继续使用即启用数据收集。\n仅收集应用版本、系统、架构和运行结果，不包含账户、路径或原始日志。";
+        if (_status.TelemetryRequired) descriptions[2] = "必要遥测始终启用。CI、Alpha 和 Beta 还必须启用诊断信息，用于用户体验改进计划。\n仅发送版本、系统、架构和分类运行结果，不包含账户、路径或原始日志。";
         SetText("SetupStep", $"{Step + 1} / 4 · {labels[Step]}"); SetText("SetupTitle", titles[Step]); SetText("SetupDescription", descriptions[Step]);
-        SetText("SetupPath", _directory); SetText("SetupSummary", $"数据位置\n{_directory}\n\n用户体验计划：{(_consent ? "共享基本使用数据" : "不共享使用数据")}");
+        SetText("SetupPath", _directory); SetText("SetupSummary", $"数据位置\n{_directory}\n\n必要遥测：已启用\n诊断信息：{(_consent ? "已启用" : "已关闭")}");
         Show("SetupDirectory", Step == 1); Show("SetupConsent", Step == 2); Show("SetupSummary", Step == 3); Show("SetupBack", Step > 0);
         Show("SetupBrowse", !_status.LocationLocked);
         Show("SetupPrivate", !_status.TelemetryRequired);
-        SetText("SetupPrivate", (!_consent ? "✓  " : "    ") + "不共享使用数据");
-        SetText("SetupShare", (_consent ? "✓  " : "    ") + "共享基本使用数据");
+        SetText("SetupPrivate", (!_consent ? "✓  " : "    ") + "仅共享必要遥测");
+        SetText("SetupShare", (_consent ? "✓  " : "    ") + "同时共享诊断信息");
         foreach (string key in new[] { "SetupPrivate", "SetupShare" })
             Style(key, ((key == "SetupShare") == _consent) ? DesktopUiPalette.CapsuleBackground : new(243, 246, 250), new(52, 61, 74), 15);
         SetText("SetupNext", _saving is not null ? "正在保存…" : Step == 3 ? "开始使用" : "继续");
