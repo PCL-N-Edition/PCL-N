@@ -19,6 +19,7 @@ public sealed class AvaloniaUiPlatformActions
     internal void Attach(TopLevel owner)
     {
         _owner = owner;
+        if (owner is AvaloniaUiShellWindow shellWindow) shellWindow.CloseGuard = () => CloseRequested?.Invoke() ?? true;
         owner.AddHandler(InputElement.PointerPressedEvent, OnPointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
         owner.AddHandler(InputElement.PointerReleasedEvent, OnPointerReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
         owner.AddHandler(InputElement.KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -28,13 +29,17 @@ public sealed class AvaloniaUiPlatformActions
         if (owner is Window window) window.Deactivated += (_, _) => _doubleClick.Cancel();
     }
 
+    /// <summary>Returns false to defer closing while the product resolves pending work.</summary>
+    public Func<bool>? CloseRequested { get; set; }
+
     public event Action<AvaloniaUiInputKind>? InputObserved;
     public event Action<IReadOnlyList<string>>? FilesDropped;
 
     /// <summary>Closes through the normal native window lifecycle and its exit animation.</summary>
     public void RequestClose()
     {
-        if (_owner is Window window) Dispatcher.UIThread.Post(window.Close);
+        if (_owner is AvaloniaUiShellWindow shellWindow) Dispatcher.UIThread.Post(shellWindow.RequestClose);
+        else if (_owner is Window window) Dispatcher.UIThread.Post(window.Close);
     }
 
     private void OnDragOver(object? sender, DragEventArgs args)

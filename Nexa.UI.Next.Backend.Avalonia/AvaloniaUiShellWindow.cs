@@ -195,9 +195,13 @@ public sealed class AvaloniaUiShellWindow : Window
         }
     }
 
+    internal Func<bool>? CloseGuard { get; set; }
+
     protected override void OnClosing(WindowClosingEventArgs e)
     {
         base.OnClosing(e);
+        if (e.Cancel) return;
+        if (!_closeAnimationStarted && CloseGuard?.Invoke() == false) { e.Cancel = true; return; }
         if (_closeAnimationStarted || _shell.Renderer.ReducedMotion)
         {
             return;
@@ -215,8 +219,9 @@ public sealed class AvaloniaUiShellWindow : Window
     /// Plays the close collapse and then closes for real. The collapse runs exactly once; a
     /// close request that arrives while it plays falls through to the plain close.
     /// </summary>
-    private void RequestClose()
+    internal void RequestClose()
     {
+        if (!_closeAnimationStarted && CloseGuard?.Invoke() == false) return;
         if (_closeAnimationStarted || _shell.Renderer.ReducedMotion)
         {
             Close();

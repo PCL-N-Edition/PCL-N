@@ -348,6 +348,8 @@ internal static class Program
             .Select(directory => directory.Path).ToArray() ?? [minecraftRootDirectory];
         using var installRecovery = new DesktopInstallRecoverySession(installRun.Commands, recoveryRoots,
             message => host.Logging.Warn("Install", message));
+        var installExit = new DesktopInstallExitCoordinator(host.StateStore, installRun.Commands, feedback, platformActions.RequestClose);
+        platformActions.CloseRequested = installExit.CanClose;
         setStage("gui_lifetime");
         host.Logging.Info("Launcher", "Entering Avalonia GUI lifetime.");
         int exitCode;
