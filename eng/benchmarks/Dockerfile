@@ -6,4 +6,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && useradd --uid 10001 --create-home benchmark
 USER 10001:10001
 ENV HOME=/home/benchmark LIBGL_ALWAYS_SOFTWARE=1
-ENTRYPOINT ["xvfb-run", "-a", "-s", "-screen 0 1280x720x24", "/harness/Nexa.Minecraft.Benchmarks"]
+COPY entrypoint.sh /benchmark-entrypoint.sh
+ENTRYPOINT ["/bin/sh", "/benchmark-entrypoint.sh"]

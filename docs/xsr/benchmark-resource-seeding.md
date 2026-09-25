@@ -19,7 +19,8 @@ status in `run.json` alongside `samples.csv`. It deliberately sets `trainingElig
 adapters, full hardware provenance, and real-pack validation are still pending. `context.json` carries
 the existing Jvm.Host context's loader/components and bounded mod IDs, versions and dependency ranges,
 including explicit unknown/incomplete flags. No context is represented as unavailable, not an empty
-complete inventory. Nested JAR limitations of the shared reader remain unchanged.
+complete inventory. The shared reader follows bounded Fabric nested JAR candidates; this is not
+proof of runtime activation. Forge JarJar and Quilt nesting remain incomplete.
 The created `game` directory is local scratch data and must not be uploaded as a CI artifact.
 `eng/xsr/Test-MinecraftBenchmark.ps1` checks argument/hash/storage boundaries without downloading games.
 
@@ -33,6 +34,11 @@ and explicit metadata allowlists; the collector strips extra fields and validate
 No recursive game-directory/log upload is allowed. The job can be
 triggered manually and runs on changes to its reviewed catalog/workflow; there is no nightly large
 matrix yet. Container/runner performance is not a hardware-rendered player baseline.
+
+Pilot run 36103488629 timed out before producing the output directory or printing the install
+stage; it produced no training sample. Independent 20-second native-host, Java and virtual-display
+probes now precede installation, and fixed stage labels distinguish archive inspection, Java probing
+and launch-file completion. A successful environment probe does not establish a working game.
 
 ## Dataset and runner selection
 

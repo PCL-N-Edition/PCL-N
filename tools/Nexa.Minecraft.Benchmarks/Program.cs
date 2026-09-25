@@ -50,8 +50,10 @@ internal static class Program
     private static async Task<int> RunAsync(string archive, string hash, string java, string host,
         string output, int heap, int seconds, CancellationToken token)
     {
+        Console.WriteLine("Benchmark stage: archive verification.");
         var preview = await MinecraftModpackArchive.InspectAsync(archive, token).ConfigureAwait(false);
         if (!string.Equals(preview.Sha256, hash, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Pack hash mismatch.");
+        Console.WriteLine("Benchmark stage: Java inspection.");
         var runtime = await new LocalJavaRuntimeLocator().InspectAsync(java, token).ConfigureAwait(false)
             ?? throw new InvalidDataException("Java runtime cannot be inspected.");
         Directory.CreateDirectory(output);
@@ -66,6 +68,7 @@ internal static class Program
         if (!installed.IsSuccess) throw new InvalidDataException("Pack installation failed.");
         var instances = await new MinecraftInstanceDiscovery().DiscoverAsync(root, token).ConfigureAwait(false);
         var instance = instances.Single(item => item.Id == installed.Value.InstanceId);
+        Console.WriteLine("Benchmark stage: manifest resolution and launch file completion.");
         var manifests = await MinecraftVersionJsonReader.ResolveAsync(instance, root, token).ConfigureAwait(false);
         var platform = MinecraftLaunchPlatform.Detect();
         using var completion = new MinecraftLaunchFileCompletion(downloads);
