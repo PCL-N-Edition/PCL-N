@@ -172,6 +172,7 @@ public sealed partial class MinecraftInstallService
         bool safeToRemove = false;
         try
         {
+            _ = await InstallTaskJournal.CreateAsync(stage, command with { RootDirectory = original.RootDirectory }, token).ConfigureAwait(false);
             if (editPlan.Kind == MinecraftInstallEditKind.ComponentsOnly)
                 await PrepareComponentEditAsync(command, original, editPlan, stage, task, token).ConfigureAwait(false);
             else
@@ -189,6 +190,7 @@ public sealed partial class MinecraftInstallService
             if (current.Fingerprint != original.Fingerprint) throw new InvalidDataException("安装期间原版本已更改，请重试。");
             string[] generatedFiles = Directory.GetFiles(stage, "*", SearchOption.AllDirectories)
                 .Select(file => Path.GetRelativePath(stage, file).Replace('\\', '/'))
+                .Where(relative => !relative.StartsWith(InstallTaskJournal.DirectoryName + "/", StringComparison.Ordinal))
                 .Where(relative => relative == relativeManifest || !(relative.StartsWith("versions/", StringComparison.Ordinal)
                     && relative.EndsWith(".json", StringComparison.Ordinal) && File.Exists(ForgeInstallService.Contained(original.RootDirectory, relative))))
                 .ToArray();

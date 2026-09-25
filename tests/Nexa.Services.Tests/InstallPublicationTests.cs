@@ -31,6 +31,8 @@ internal static partial class Program
                 Directory.CreateDirectory(Path.Combine(stage, "mods")); Directory.CreateDirectory(Path.Combine(stage, "versions", "test"));
                 File.WriteAllText(Path.Combine(stage, "mods", "a.jar"), "replacement-mod");
                 File.WriteAllText(Path.Combine(stage, "versions", "test", "test.json"), "replacement-manifest");
+                await InstallTaskJournal.CreateAsync(stage, new(root, "1.21.1", InstanceName: "test", EditFingerprint: new('A', 64))
+                { InheritVanilla = false }, default);
                 await InstallPublicationJournal.PrepareAsync(root, stage, "test", ["mods/a.jar", "versions/test/test.json"],
                     new Dictionary<string, string> { ["mods/a.jar"] = RecoveryTextBlob("original-mod").Sha256 }, default);
                 var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
@@ -45,6 +47,8 @@ internal static partial class Program
                 }
                 finally { if (!child.HasExited) { child.Kill(entireProcessTree: true); await child.WaitForExitAsync(); } }
                 AssertEqual("replacement-mod", File.ReadAllText(mod)); AssertEqual("original-manifest", File.ReadAllText(manifest));
+                var taskPlan = await InstallTaskJournal.ReadAsync(root, stage, default);
+                AssertEqual("test", taskPlan.Command.InstanceName); AssertEqual("1.21.1", taskPlan.Command.GameVersion);
                 var reopened = await InstallPublicationJournal.OpenAsync(root, stage, default);
                 if (rollback)
                 {
