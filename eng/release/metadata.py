@@ -19,7 +19,7 @@ ASSET_GUIDE = {
     ("linux", "rpm"): "Linux RPM 安装包（Fedora / openSUSE）",
     ("linux", "AppImage"): "Linux AppImage（免安装单文件）",
     ("linux", "portable.tar.gz"): "Linux 便携版（解压即用）",
-    ("osx", "dmg"): "macOS 映像（打开后拖入 Applications）",
+    ("osx", "dmg"): "macOS 安装映像（打开 NexaCL.pkg，为所有用户安装）",
     ("osx", "portable.tar.gz"): "macOS 便携版（解压即用）",
 }
 PLATFORM_NAMES = {"win": "Windows", "linux": "Linux", "osx": "macOS"}
