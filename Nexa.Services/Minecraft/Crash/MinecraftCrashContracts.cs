@@ -172,7 +172,7 @@ public static class MinecraftLaunchFaultAnalyzer
     {
         if (Any(text, "being used by another process", "sharing violation", "另一个进程正在使用")) return MinecraftLaunchFaultCode.FileLocked;
         if (Any(text, "access is denied", "unauthorizedaccessexception", "permission denied", "拒绝访问")) return MinecraftLaunchFaultCode.AccessDenied;
-        if (Any(text, "unsupportedclassversionerror", "class file version", "open j9 is not supported", "module java.base does not export", "invalid maximum heap size")) return MinecraftLaunchFaultCode.JavaRuntimeIncompatible;
+        if (Any(text, "unsupportedclassversionerror", "class file version", "open j9 is not supported", "module java.base does not export", "invalid maximum heap size", "Java runtime architecture is incompatible with the JVM host")) return MinecraftLaunchFaultCode.JavaRuntimeIncompatible;
         if (Any(text, "outofmemoryerror", "java heap space", "could not reserve enough space")) return MinecraftLaunchFaultCode.OutOfMemory;
         if (Any(text, "could not find or load main class", "mainclassmissing", "找不到或无法加载主类")) return MinecraftLaunchFaultCode.MainClassMissing;
         if (Any(text, "missing mandatory dependencies", "requires version", "requires any version", "依赖模组")) return MinecraftLaunchFaultCode.MissingModDependency;
@@ -184,7 +184,7 @@ public static class MinecraftLaunchFaultAnalyzer
         if (Any(text, "invalid credentials", "invalid token", "authenticationexception", "http 401", "http 403", "重新连接账户")) return MinecraftLaunchFaultCode.AuthenticationFailed;
         if (Any(text, "sessionserver", "hasjoined", "joinserver", "http 503") && Any(text, "session", "auth", "profile")) return MinecraftLaunchFaultCode.SessionServiceUnavailable;
         if (Any(text, "jvm.dll", "libjvm.so", "libjvm.dylib", "找不到 java")) return MinecraftLaunchFaultCode.JavaRuntimeMissing;
-        if (stage.Contains("JvmStarting", StringComparison.OrdinalIgnoreCase) || Any(text, "createjavavm", "jni_err", "jvmti")) return MinecraftLaunchFaultCode.JvmInitializationFailed;
+        if (stage.Contains("JvmStarting", StringComparison.OrdinalIgnoreCase) || Any(text, "createjavavm", "jni_err", "jvmti", "Nexa JVM Host Error:")) return MinecraftLaunchFaultCode.JvmInitializationFailed;
         return MinecraftLaunchFaultCode.Unknown;
     }
 

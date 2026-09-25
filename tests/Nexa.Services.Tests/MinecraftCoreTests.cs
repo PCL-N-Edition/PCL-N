@@ -360,6 +360,14 @@ internal static partial class Program
 
     internal static void MinecraftCrashAnalysisAndDependencyParsingAreStructured()
     {
+        MinecraftLaunchFaultReport hostArchitecture = MinecraftLaunchFaultAnalyzer.AnalyzeText([
+            "Nexa JVM Host Error: Java runtime architecture is incompatible with the JVM host. (BadImageFormatException)"]);
+        AssertEqual(MinecraftLaunchFaultCode.JavaRuntimeIncompatible, hostArchitecture.Code);
+        AssertTrue(hostArchitecture.AllowedActions.Contains(MinecraftRepairActionKind.SelectCompatibleJava));
+        AssertEqual(MinecraftLaunchFaultCode.JvmInitializationFailed, MinecraftLaunchFaultAnalyzer.AnalyzeText([
+            "Nexa JVM Host Error: Invalid or incomplete JVM host bootstrap request. (InvalidDataException)"]).Code);
+        AssertEqual(MinecraftLaunchFaultCode.JavaRuntimeMissing, MinecraftLaunchFaultAnalyzer.AnalyzeText([
+            "Nexa JVM Host Error: JVM library missing or unloadable (jvm.dll/libjvm.so/libjvm.dylib). (DllNotFoundException)"]).Code);
         MinecraftLaunchFaultReport java = MinecraftLaunchFaultAnalyzer.Analyze(new DllNotFoundException("Unable to load jvm.dll"), "JvmStarting");
         AssertEqual(MinecraftLaunchFaultCode.JavaRuntimeMissing, java.Code);
         AssertEqual("JVM", java.Subsystem);

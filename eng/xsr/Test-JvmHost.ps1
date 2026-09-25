@@ -25,12 +25,12 @@ try {
         $writer.Write([int]$bytes.Length)
         $writer.Write($bytes)
     }
-    foreach ($mode in @('normal', 'throw', 'exit', 'wait')) {
+    foreach ($mode in @('normal', 'throw', 'exit', 'wait', 'missing-runtime')) {
         $payload = [IO.MemoryStream]::new()
         $writer = [IO.BinaryWriter]::new($payload)
         $writer.Write([int]0x4E4A564D)
         $writer.Write([int]1)
-        Write-Field $writer $javaPath
+        Write-Field $writer $(if ($mode -eq 'missing-runtime') { Join-Path $scratch 'missing-java' } else { $javaPath })
         Write-Field $writer $scratch
         Write-Field $writer 'JvmHostSmoke'
         $jvm = @('-Xmx64m', '-Xcheck:jni', '-Dfile.encoding=UTF-8', '-Dnexa.fixture=test value')
@@ -40,6 +40,7 @@ try {
         $writer.Write([int]$jvm.Length)
         foreach ($value in $jvm) { Write-Field $writer $value }
         $game = @($mode, '', '中文😀')
+        if ($mode -eq 'missing-runtime') { $game = @($mode, '--accessToken', 'private-host-token-fixture') }
         $writer.Write([int]$game.Length)
         foreach ($value in $game) { Write-Field $writer $value }
         $bytes = $payload.ToArray()
@@ -68,12 +69,13 @@ try {
             if (!$child.WaitForExit(15000)) { throw 'JVM host timed out' }
             $output = $stdout.GetAwaiter().GetResult()
             $errorOutput = $stderr.GetAwaiter().GetResult()
-            $expectedCode = switch ($mode) { 'normal' { 0 } 'throw' { 1 } 'exit' { 7 } }
+            $expectedCode = switch ($mode) { 'normal' { 0 } 'throw' { 1 } 'exit' { 7 } 'missing-runtime' { 1 } }
             if ($mode -ne 'wait' -and $child.ExitCode -ne $expectedCode) {
                 throw "JVM $mode exit=$($child.ExitCode): $errorOutput"
             }
             if ($mode -eq 'normal' -and ($output -notmatch 'NEXA_JNI_MAIN_RETURNED' -or $output -notmatch 'NEXA_JNI_BACKGROUND_FINISHED' -or $errorOutput -notmatch 'NEXA_JNI_STDERR')) { throw "Missing output: $output $errorOutput" }
-            if ($IsMacOS -and $output -notmatch 'NEXA_JNI_COCOA_MAIN_THREAD') { throw "Missing Cocoa first-thread evidence: $errorOutput" }
+            if ($IsMacOS -and $mode -ne 'missing-runtime' -and $output -notmatch 'NEXA_JNI_COCOA_MAIN_THREAD') { throw "Missing Cocoa first-thread evidence: $errorOutput" }
+            if ($mode -eq 'missing-runtime' -and ($errorOutput -notmatch 'JVM library missing' -or $errorOutput -match 'private-host-token-fixture')) { throw 'Missing or unsafe runtime error diagnosis' }
             if ($mode -eq 'throw' -and $errorOutput -notmatch 'NEXA_JNI_EXCEPTION') { throw "Missing exception: $errorOutput" }
             if ($mode -eq 'wait' -and $output -notmatch 'NEXA_JNI_WAITING') { throw "JVM never started: $errorOutput" }
             Write-Output "PASS: JNI host $mode"

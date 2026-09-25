@@ -30,7 +30,18 @@ internal static unsafe class NativeJvmHost
         }
         catch (Exception exception) when (exception is not OutOfMemoryException and not AccessViolationException)
         {
-            Console.Error.WriteLine($"Nexa JVM Host failed: {exception.GetType().Name}");
+            // Fixed messages preserve useful diagnosis without logging paths, arguments or tokens.
+            string reason = exception switch
+            {
+                FileNotFoundException or DllNotFoundException => "JVM library missing or unloadable (jvm.dll/libjvm.so/libjvm.dylib).",
+                BadImageFormatException => "Java runtime architecture is incompatible with the JVM host.",
+                UnauthorizedAccessException => "Access is denied when preparing the JVM host.",
+                DirectoryNotFoundException => "Game working directory is missing.",
+                InvalidDataException or EndOfStreamException => "Invalid or incomplete JVM host bootstrap request.",
+                OperationCanceledException => "JVM host bootstrap timed out.",
+                _ => "JVM host initialization failed.",
+            };
+            Console.Error.WriteLine($"Nexa JVM Host Error: {reason} ({exception.GetType().Name})");
             return 1;
         }
     }
