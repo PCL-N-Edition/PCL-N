@@ -28,7 +28,16 @@ estimator. Do not extrapolate or alter heap/native/commit estimates using workin
 Remote influence must be bounded and its provenance shown as an estimate. Telemetry is self-reported;
 these gates do not prevent coordinated poisoning, and coefficients are not trusted executable code.
 
-Current slice: server trainer, scheduled aggregation, aggregate download route and deterministic
-regression/SQL/privacy tests are implemented. Client download/cache/projection, mod-specific learned
+The client admission component uses a 64 KiB actual-read limit and a three-second refresh timeout.
+It rejects duplicate properties/cohorts, unsupported metrics, malformed feature vectors, weak
+validation statistics, invalid sample counts, and expired or overlong validity windows. Prediction
+also checks expiry, input bounds, training ranges, and the final 64..65536 MiB output range. It does
+not extrapolate. Refreshes serialize and cannot replace a newer document with an older generation.
+A failed refresh retains a previously admitted session-cache document only until its original expiry;
+there is no disk cache or extension of validity on network failure. Cancellation propagates.
+
+Current slice: server trainer, scheduled aggregation, aggregate download route, client admission and
+explicit download/session-cache component, and deterministic regression/SQL/privacy tests are implemented.
+Production background refresh wiring and estimate projection, mod-specific learned
 profiles, administrator model-quality presentation and live deployment remain pending. Alpha 5 is
 not complete from this slice alone.

@@ -4,6 +4,8 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("online resource model admission and prediction stay bounded", Sync(OnlineModelAdmissionAndPredictionStayBounded)),
+        ("online resource download keeps only admitted unexpired data", OnlineModelDownloadKeepsOnlyAdmittedUnexpiredData),
         ("protected profiles migrate without plaintext copies", ProtectedProfilesMigrateWithoutPlaintextCopies),
         ("protected profile failures preserve original", ProtectedProfileFailuresPreserveOriginal),
         ("native profile protection uses current user", NativeProfileProtectionUsesCurrentUser),
