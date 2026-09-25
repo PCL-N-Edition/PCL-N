@@ -5,12 +5,50 @@ using Nexa.Services.Minecraft.Management;
 namespace Nexa.Services.Minecraft.Install;
 
 internal sealed record InstallTaskPlan(int Schema, Guid Id, DateTimeOffset CreatedAt, MinecraftInstallCommand Command);
+internal enum InstallTaskStatus { Pending, RollbackRequested, Completed, RolledBack }
+internal sealed record InstallTaskStatusRecord(int Schema, Guid Id, InstallTaskStatus Status);
 
 /// <summary>Immutable intent, written before preparing artifacts. No UI selection is needed to reopen it.</summary>
 internal static class InstallTaskJournal
 {
     internal const string DirectoryName = ".task";
     private const int MaxBytes = 1024 * 1024;
+
+    internal static async Task<InstallTaskStatus> ReadStatusAsync(string stage, InstallTaskPlan plan, CancellationToken token)
+    {
+        Validate(stage, plan.Command.RootDirectory, plan);
+        string path = Path.Combine(stage, DirectoryName, "status.json"); RecoveryBlobStore.CheckLinks(path);
+        if (!File.Exists(path)) return InstallTaskStatus.Pending;
+        await using var input = File.OpenRead(path);
+        if (input.Length > 4096) throw new InvalidDataException("安装任务状态记录过大。");
+        byte[] bytes = new byte[(int)input.Length]; await input.ReadExactlyAsync(bytes, token).ConfigureAwait(false);
+        if (input.ReadByte() != -1) throw new InvalidDataException("安装任务状态发生变化。");
+        var state = JsonSerializer.Deserialize(bytes, InstallTaskJsonContext.Default.InstallTaskStatusRecord);
+        if (state is null || state.Schema != 1 || state.Id != plan.Id || !Enum.IsDefined(state.Status) || state.Status == InstallTaskStatus.Pending)
+            throw new InvalidDataException("安装任务状态身份无效。");
+        return state.Status;
+    }
+
+    /// <summary>Caller holds the task execution lease; never publishes success before this write completes.</summary>
+    internal static async Task WriteStatusAsync(string stage, InstallTaskPlan plan, InstallTaskStatus status, CancellationToken token)
+    {
+        InstallTaskStatus current = await ReadStatusAsync(stage, plan, token).ConfigureAwait(false);
+        if (status == current && status != InstallTaskStatus.Pending) return;
+        if (!((current == InstallTaskStatus.Pending && status is InstallTaskStatus.Completed or InstallTaskStatus.RollbackRequested)
+            || current == InstallTaskStatus.RollbackRequested && status == InstallTaskStatus.RolledBack))
+            throw new InvalidDataException("安装任务状态不允许此转换。");
+        string directory = Path.Combine(stage, DirectoryName);
+        string target = Path.Combine(directory, "status.json"), temporary = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".part");
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(new InstallTaskStatusRecord(1, plan.Id, status), InstallTaskJsonContext.Default.InstallTaskStatusRecord);
+        RecoveryBlobStore.CheckLinks(temporary);
+        try
+        {
+            await using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true))
+            { await output.WriteAsync(bytes, token).ConfigureAwait(false); await output.FlushAsync(token).ConfigureAwait(false); output.Flush(true); }
+            token.ThrowIfCancellationRequested(); RecoveryBlobStore.CheckLinks(target); File.Move(temporary, target, true);
+        }
+        finally { RecoveryBlobStore.CheckLinks(temporary); if (File.Exists(temporary)) File.Delete(temporary); }
+    }
 
     internal static async Task<InstallTaskPlan> CreateAsync(string stage, MinecraftInstallCommand command, CancellationToken token)
     {
@@ -96,4 +134,5 @@ internal static class InstallTaskJournal
 
 [JsonSourceGenerationOptions(UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(InstallTaskPlan))]
+[JsonSerializable(typeof(InstallTaskStatusRecord))]
 internal sealed partial class InstallTaskJsonContext : JsonSerializerContext;

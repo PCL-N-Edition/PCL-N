@@ -164,7 +164,7 @@ public sealed partial class MinecraftInstallService
         var editPlan = MinecraftInstallEditPlanner.Evaluate(new(original, selected));
         if (editPlan.Kind == MinecraftInstallEditKind.Unchanged)
         {
-            if (command.NewInstanceName is null || command.NewInstanceName == instance) task.Complete("没有需要修改的选项");
+            if (resumeStage is null && (command.NewInstanceName is null || command.NewInstanceName == instance)) task.Complete("没有需要修改的选项");
             return new(instance, Path.Combine(original.RootDirectory, "versions", instance));
         }
         string stage = resumeStage ?? ForgeInstallService.Contained(original.RootDirectory, ".nexa-modify/" + Guid.NewGuid().ToString("N"));
@@ -220,7 +220,7 @@ public sealed partial class MinecraftInstallService
                 throw;
             }
             safeToRemove = true;
-            if (command.NewInstanceName is null || command.NewInstanceName == instance)
+            if (resumeStage is null && (command.NewInstanceName is null || command.NewInstanceName == instance))
             {
                 task.Complete($"已修改 {instance}");
                 Installed?.Invoke(original.RootDirectory);

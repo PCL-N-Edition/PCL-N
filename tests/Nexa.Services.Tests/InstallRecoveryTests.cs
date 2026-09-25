@@ -6,6 +6,29 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static async ValueTask InstallRecoveryRepairsCommittedTerminalBeforeRejectingRollback()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string stage = await MetadataTaskStage(root);
+            Directory.CreateDirectory(Path.Combine(stage, "versions", "test"));
+            File.WriteAllText(Path.Combine(stage, "versions", "test", "test.json"), "committed");
+            var journal = await InstallPublicationJournal.PrepareAsync(root, stage, "test", ["versions/test/test.json"], new Dictionary<string, string>(), default);
+            await journal.ApplyAsync(default);
+            using var fixture = new InstallFixture(new FakeMetadata());
+            Guid id = Guid.ParseExact(Path.GetFileName(stage), "N");
+            bool rejected = false;
+            try { await fixture.Install.RollbackModificationAsync(root, id); } catch (InvalidOperationException) { rejected = true; }
+            AssertTrue(rejected);
+            var plan = await InstallTaskJournal.ReadAsync(root, stage, default);
+            AssertEqual(InstallTaskStatus.Completed, await InstallTaskJournal.ReadStatusAsync(stage, plan, default));
+            AssertEqual("committed", File.ReadAllText(Path.Combine(root, "versions", "test", "test.json")));
+            await fixture.Install.ResumeModificationAsync(root, id);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     private static async ValueTask InstallRecoveryContinuesPreparationAndRejectsConcurrentExecution()
     {
         string root = CreateTempDirectory();

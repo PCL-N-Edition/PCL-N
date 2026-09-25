@@ -16,6 +16,7 @@ internal sealed class InstallPublicationJournal
     private readonly string _hash;
     private const int RecordLimit = 16 * 1024 * 1024;
     internal string InstanceId => _instance;
+    internal async Task<string> ReadPhaseAsync(CancellationToken token) => (await ReadProgressAsync(token).ConfigureAwait(false)).Phase;
 
     private InstallPublicationJournal(string root, string stage, string instance, IReadOnlyList<InstallPublicationFile> files, string hash)
     { _root = root; _stage = stage; _journal = Path.Combine(stage, ".publication"); _instance = instance; _files = files; _hash = hash; }

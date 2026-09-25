@@ -5,6 +5,26 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static async ValueTask InstallTaskTerminalStatesDoNotResurrect()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string stage = await MetadataTaskStage(root);
+            var plan = await InstallTaskJournal.ReadAsync(root, stage, default);
+            AssertEqual(InstallTaskStatus.Pending, await InstallTaskJournal.ReadStatusAsync(stage, plan, default));
+            await InstallTaskJournal.WriteStatusAsync(stage, plan, InstallTaskStatus.RollbackRequested, default);
+            try { await InstallTaskJournal.WriteStatusAsync(stage, plan, InstallTaskStatus.Completed, default); throw new InvalidOperationException("Rollback changed to completion."); } catch (InvalidDataException) { }
+            await InstallTaskJournal.WriteStatusAsync(stage, plan, InstallTaskStatus.RolledBack, default);
+            await InstallTaskJournal.WriteStatusAsync(stage, plan, InstallTaskStatus.RolledBack, default);
+            try { await InstallTaskJournal.WriteStatusAsync(stage, plan, InstallTaskStatus.Pending, default); throw new InvalidOperationException("Terminal task resurrected."); } catch (InvalidDataException) { }
+            string path = Path.Combine(stage, InstallTaskJournal.DirectoryName, "status.json");
+            var document = JsonNode.Parse(File.ReadAllText(path))!; document["Id"] = Guid.NewGuid(); File.WriteAllText(path, document.ToJsonString());
+            try { await InstallTaskJournal.ReadStatusAsync(stage, plan, default); throw new InvalidOperationException("Other task status accepted."); } catch (InvalidDataException) { }
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     private static async ValueTask InstallTaskJournalPreservesChoicesAndRejectsInvalidRecords()
     {
         string root = CreateTempDirectory();
