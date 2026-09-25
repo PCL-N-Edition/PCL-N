@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using Nexa.Services.Files;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using Nexa.Xsr;

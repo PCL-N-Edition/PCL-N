@@ -222,6 +222,7 @@ internal static partial class Program
         ("yggdrasil server normalization and jwt expiry work", Sync(YggdrasilServerNormalizationAndJwtExpiry)),
         ("login results feed the persisted roster", LoginResultsFeedThePersistedRoster),
         // XSR-516: payload extraction and patch orchestration.
+        ("update archives enforce actual budgets", UpdateArchivesEnforceActualBudgets),
         ("zip payloads extract with traversal refusal", Sync(ZipPayloadsExtractWithTraversalRefusal)),
         ("tar payloads extract with modes", TarPayloadsExtractWithModes),
         ("the hpatchz tool runs through the process port", HpatchzToolRunsThroughTheProcessPort),

@@ -1,6 +1,6 @@
 using System.Formats.Tar;
 using System.IO.Compression;
-using System.Security.Cryptography;
+using Nexa.Services.Files;
 
 namespace Nexa.Services.Updates;
 
@@ -18,16 +18,26 @@ public static class UpdatePayloadExtractor
     /// </summary>
     public static async Task<List<UpdateFileEntry>> ExtractZipAsync(
         string archivePath,
-        string stagedRoot)
+        string stagedRoot,
+        UpdateArchiveLimits? limits = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
+        limits ??= new();
+        limits.Validate(archivePath);
+        var budget = new ArchiveReadBudget(limits.MaximumExpandedBytes);
         Directory.CreateDirectory(stagedRoot);
         List<UpdateFileEntry> inventory = [];
         using ZipArchive archive = ZipFile.OpenRead(archivePath);
+        if (archive.Entries.Count > limits.MaximumEntries) throw new InvalidDataException("更新归档条目过多。");
         foreach (ZipArchiveEntry entry in archive.Entries)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            int type = (entry.ExternalAttributes >> 16) & 0xF000;
+            if (type is not (0 or 0x8000 or 0x4000)) throw new InvalidDataException("更新归档不允许链接或特殊文件。");
             if (string.IsNullOrEmpty(entry.Name) || entry.FullName.EndsWith('/'))
             {
+                if (!IsRootDirectoryMarker(entry.FullName)) ResolveArchiveEntryPath(stagedRoot, entry.FullName);
                 continue; // bare directory marker
             }
 
@@ -40,7 +50,7 @@ public static class UpdatePayloadExtractor
                 destination,
                 entry.Length,
                 NormalizeArchiveEntryPath(entry.FullName),
-                unixMode).ConfigureAwait(false));
+                unixMode, limits.MaximumFileBytes, budget, cancellationToken).ConfigureAwait(false));
             ApplyUnixMode(destination, unixMode);
         }
 
@@ -53,9 +63,15 @@ public static class UpdatePayloadExtractor
     /// </summary>
     public static async Task<List<UpdateFileEntry>> ExtractTarAsync(
         string archivePath,
-        string stagedRoot)
+        string stagedRoot,
+        UpdateArchiveLimits? limits = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
+        limits ??= new();
+        limits.Validate(archivePath);
+        var budget = new ArchiveReadBudget(limits.MaximumExpandedBytes);
+        int count = 0;
         Directory.CreateDirectory(stagedRoot);
         List<UpdateFileEntry> inventory = [];
         await using FileStream stream = new(
@@ -66,17 +82,18 @@ public static class UpdatePayloadExtractor
             64 * 1024,
             FileOptions.SequentialScan);
         using TarReader reader = new(stream);
-        while (await reader.GetNextEntryAsync().ConfigureAwait(false) is { } entry)
+        while (await reader.GetNextEntryAsync(cancellationToken: cancellationToken).ConfigureAwait(false) is { } entry)
         {
+            if (++count > limits.MaximumEntries) throw new InvalidDataException("更新归档条目过多。");
             if (entry.EntryType is TarEntryType.Directory)
             {
-                ResolveArchiveEntryPath(stagedRoot, entry.Name);
+                if (!IsRootDirectoryMarker(entry.Name)) ResolveArchiveEntryPath(stagedRoot, entry.Name);
                 continue;
             }
 
-            if (entry.EntryType is not (TarEntryType.RegularFile or TarEntryType.V7RegularFile or TarEntryType.HardLink))
+            if (entry.EntryType is not (TarEntryType.RegularFile or TarEntryType.V7RegularFile))
             {
-                continue;
+                throw new InvalidDataException("更新归档不允许链接或特殊文件。");
             }
 
             string destination = ResolveArchiveEntryPath(stagedRoot, entry.Name);
@@ -92,7 +109,7 @@ public static class UpdatePayloadExtractor
                 destination,
                 entry.Length,
                 NormalizeArchiveEntryPath(entry.Name),
-                unixMode).ConfigureAwait(false));
+                unixMode, limits.MaximumFileBytes, budget, cancellationToken).ConfigureAwait(false));
             ApplyUnixMode(destination, unixMode);
         }
 
@@ -114,42 +131,26 @@ public static class UpdatePayloadExtractor
         return text.TrimEnd('/');
     }
 
+    private static bool IsRootDirectoryMarker(string path) =>
+        path is "." or "./" || (path.StartsWith("./", StringComparison.Ordinal) && NormalizeArchiveEntryPath(path).Length == 0);
+
     private static async Task<UpdateFileEntry> ExtractAndHashAsync(
         Stream content,
         string destination,
         long declaredLength,
         string relativePath,
-        int? unixMode)
+        int? unixMode,
+        long maximumFileBytes,
+        ArchiveReadBudget budget,
+        CancellationToken cancellationToken)
     {
-        using FileStream output = new(
-            destination,
-            FileMode.CreateNew,
-            FileAccess.Write,
-            FileShare.None,
-            128 * 1024,
-            FileOptions.SequentialScan);
-        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        byte[] buffer = new byte[128 * 1024];
-        long written = 0;
-        while (true)
-        {
-            int read = await content.ReadAsync(buffer).ConfigureAwait(false);
-            if (read == 0)
-            {
-                break;
-            }
-
-            hash.AppendData(buffer.AsSpan(0, read));
-            await output.WriteAsync(buffer.AsMemory(0, read)).ConfigureAwait(false);
-            written += read;
-        }
-
-        _ = declaredLength;
+        string digest = await UpdateArchiveEntry.CopyAndHashAsync(content, destination, declaredLength,
+            maximumFileBytes, budget, cancellationToken).ConfigureAwait(false);
         return new UpdateFileEntry
         {
             Path = relativePath,
-            Sha256 = Convert.ToHexStringLower(hash.GetHashAndReset()),
-            Size = written,
+            Sha256 = digest,
+            Size = declaredLength,
             UnixMode = unixMode,
         };
     }

@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using Nexa.Services.Downloads;
+using Nexa.Services.Files;
 using Nexa.Services.Minecraft;
 using Nexa.Services.Minecraft.Install;
 using Nexa.Services.Tasks;

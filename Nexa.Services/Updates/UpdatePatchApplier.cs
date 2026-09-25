@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
+using Nexa.Services.Files;
 
 namespace Nexa.Services.Updates;
 
@@ -101,17 +102,31 @@ public sealed class UpdatePatchApplier
     /// bundle blob, and `delete` stages nothing. The staged tree is then verified against the
     /// manifest's target files, so a returned plan is exactly the bundle's promise.
     /// </summary>
+    public Task ApplyScatterOpsAsync(
+        UpdateScatterPatchManifest manifest,
+        string bundleZipPath,
+        string sourceRoot,
+        string stagedRoot,
+        CancellationToken cancellationToken = default) =>
+        ApplyScatterOpsAsync(manifest, bundleZipPath, sourceRoot, stagedRoot, new UpdateArchiveLimits(), cancellationToken);
+
     public async Task ApplyScatterOpsAsync(
         UpdateScatterPatchManifest manifest,
         string bundleZipPath,
         string sourceRoot,
         string stagedRoot,
+        UpdateArchiveLimits limits,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(manifest);
         ArgumentException.ThrowIfNullOrWhiteSpace(bundleZipPath);
+        ArgumentNullException.ThrowIfNull(limits);
+        limits.Validate(bundleZipPath);
+        var budget = new ArchiveReadBudget(limits.MaximumExpandedBytes);
+        if (manifest.Ops.Count > limits.MaximumEntries) throw new InvalidDataException("更新操作过多。");
         Directory.CreateDirectory(stagedRoot);
         using ZipArchive bundle = ZipFile.OpenRead(bundleZipPath);
+        if (bundle.Entries.Count > limits.MaximumEntries) throw new InvalidDataException("更新归档条目过多。");
 
         foreach (UpdateScatterPatchOperation operation in manifest.Ops)
         {
@@ -129,7 +144,7 @@ public sealed class UpdatePatchApplier
                         string payload = UpdateStaging.ResolveSafeRelativePath(stagedRoot, ".payload-" + Guid.NewGuid().ToString("N"));
                         try
                         {
-                            await ExtractMemberAsync(bundle, operation.Patch, payload, operation.PatchSha256, operation.PatchSize)
+                            await ExtractMemberAsync(bundle, operation.Patch, payload, operation.PatchSha256, operation.PatchSize, limits, budget, cancellationToken)
                                 .ConfigureAwait(false);
                             await _tool.ApplyAsync(source, payload, output, cancellationToken).ConfigureAwait(false);
                         }
@@ -142,7 +157,7 @@ public sealed class UpdatePatchApplier
                     }
                 case "add":
                 case "replace":
-                    await ExtractMemberAsync(bundle, operation.Blob, output, operation.BlobSha256, operation.BlobSize)
+                    await ExtractMemberAsync(bundle, operation.Blob, output, operation.BlobSha256, operation.BlobSize, limits, budget, cancellationToken)
                         .ConfigureAwait(false);
                     break;
                 case "delete":
@@ -171,7 +186,7 @@ public sealed class UpdatePatchApplier
         string? memberPath,
         string destination,
         string? sha256,
-        long size)
+        long size, UpdateArchiveLimits limits, ArchiveReadBudget budget, CancellationToken token)
     {
         string normalized = UpdateStaging.NormalizeRelativePath(memberPath);
         if (normalized.Length == 0)
@@ -186,45 +201,16 @@ public sealed class UpdatePatchApplier
                 StringComparison.Ordinal))
             ?? throw new InvalidDataException($"散包缺少载荷成员：{memberPath}");
 
+        int type = (entry.ExternalAttributes >> 16) & 0xF000;
+        if (type is not (0 or 0x8000) || size < 0 || (size > 0 && entry.Length != size))
+            throw new InvalidDataException($"散包载荷类型或大小不匹配：{memberPath}");
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destination))!);
-        using (Stream content = entry.Open())
+        string digest = await UpdateArchiveEntry.CopyAndHashAsync(entry.Open(), destination, entry.Length,
+            limits.MaximumFileBytes, budget, token).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(sha256) && !string.Equals(digest, sha256, StringComparison.OrdinalIgnoreCase))
         {
-            using FileStream output = new(
-                destination,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None,
-                128 * 1024,
-                FileOptions.SequentialScan);
-            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-            byte[] buffer = new byte[128 * 1024];
-            long written = 0;
-            while (true)
-            {
-                int read = await content.ReadAsync(buffer).ConfigureAwait(false);
-                if (read == 0)
-                {
-                    break;
-                }
-
-                hash.AppendData(buffer.AsSpan(0, read));
-                await output.WriteAsync(buffer.AsMemory(0, read)).ConfigureAwait(false);
-                written += read;
-            }
-
-            if (size > 0 && written != size)
-            {
-                throw new InvalidDataException($"散包载荷大小不匹配：{memberPath}");
-            }
-
-            if (!string.IsNullOrWhiteSpace(sha256)
-                && !string.Equals(
-                    Convert.ToHexStringLower(hash.GetHashAndReset()),
-                    sha256,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidDataException($"散包载荷 SHA-256 校验失败：{memberPath}");
-            }
+            TryDelete(destination);
+            throw new InvalidDataException($"散包载荷 SHA-256 校验失败：{memberPath}");
         }
     }
 
