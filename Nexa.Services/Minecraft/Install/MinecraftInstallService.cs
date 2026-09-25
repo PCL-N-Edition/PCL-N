@@ -833,6 +833,7 @@ public sealed partial class MinecraftInstallService : IDisposable
 
     public void Dispose()
     {
+        _recoveryDiscoveryGate.Dispose();
         if (_ownsHttp)
         {
             _http.Dispose();

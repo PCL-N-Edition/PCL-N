@@ -11,6 +11,44 @@ public sealed partial class MinecraftInstallService
     {
         if (command.RootDirectories is null || command.RootDirectories.Count > 64)
             return XsrResult.Failure(MinecraftErrors.InvalidRequest("恢复目录数量无效。"));
+        var roots = command.RootDirectories.ToArray();
+        lock (_executionGate)
+        {
+            if (_stopping) return XsrResult.Failure(XsrRuntimeErrors.Cancelled());
+            foreach (string root in roots.Where(root => !string.IsNullOrWhiteSpace(root) && Path.IsPathFullyQualified(root)))
+                _recoveryRoots.Add(Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)));
+        }
+        using var queue = _tasks.Begin(new("install-recovery:queue:" + Guid.NewGuid().ToString("N"), "继续安装与修改", StagePlan, CanCancel: false));
+        try
+        {
+            await _recoveryDiscoveryGate.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                bool stopping;
+                lock (_executionGate) stopping = _stopping;
+                if (stopping) { queue.Paused(); return XsrResult.Failure(XsrRuntimeErrors.Cancelled()); }
+                var result = await RecoverPendingCoreAsync(new(roots), token).ConfigureAwait(false);
+                if (result.IsSuccess) queue.Complete("安装恢复检查完成");
+                else if (_stopping) queue.Paused();
+                else queue.Fail("部分安装恢复需要处理。");
+                return result;
+            }
+            finally { _recoveryDiscoveryGate.Release(); }
+        }
+        catch (OperationCanceledException)
+        {
+            if (_stopping)
+            {
+                if (_pauseForExit) queue.Paused(); else queue.Canceled();
+                return XsrResult.Failure(XsrRuntimeErrors.Cancelled());
+            }
+            queue.Paused();
+            throw;
+        }
+    }
+
+    private async Task<XsrResult> RecoverPendingCoreAsync(MinecraftInstallRecoveryCommand command, CancellationToken token)
+    {
         int visited = 0, failures = 0;
         void Fail(string detail)
         {

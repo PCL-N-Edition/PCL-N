@@ -1,3 +1,4 @@
+using Nexa.Services.Minecraft;
 using Nexa.Services.Minecraft.Install;
 using Nexa.Services.Tasks;
 using Nexa.Xsr.Runtime;
@@ -19,17 +20,22 @@ internal sealed class DesktopInstallExitCoordinator(
         var active = store.ReadCollection<TaskCenterEntry>(store.Resolve(TaskCenterStateContract.EntriesKey)).Items
             .Where(item => !item.IsTerminal && (item.TaskId.StartsWith("install:", StringComparison.Ordinal)
                 || item.TaskId.StartsWith("install-recovery:", StringComparison.Ordinal))).ToArray();
-        if (active.Length == 0)
+        if (active.Length == 0 && !_stopFailed) return true;
+        if (Interlocked.Exchange(ref _busy, 1) != 0) return false;
+        if (active.Length == 0 && _stopFailed)
         {
-            if (!_stopFailed) return true;
-            feedback.Error("上次停止安装未能完成，恢复记录已保留，暂不能确认安全退出。");
+            feedback.ShowDialog("install.exit.retry", "安装撤回尚未完成", "恢复记录已保留。处理任务提示中的问题后，可重试取消或回滚。",
+                "重试撤回并退出", "留在启动器", accepted =>
+                {
+                    if (accepted) _ = StopAsync(false); else Interlocked.Exchange(ref _busy, 0);
+                });
             return false;
         }
-        if (Interlocked.Exchange(ref _busy, 1) != 0) return false;
         bool modifications = active.Any(item => item.Title.StartsWith("修改", StringComparison.Ordinal)
-            || item.Title.StartsWith("继续修改", StringComparison.Ordinal));
+            || item.Title.StartsWith("继续修改", StringComparison.Ordinal)
+            || item.TaskId.StartsWith("install-recovery:queue:", StringComparison.Ordinal));
         Guid dialogId = Guid.Empty;
-        dialogId = feedback.ShowDialog("install.exit", "安装尚未完成", "暂停后，下次启动会继续。取消安装或回滚修改会撤回当前运行的任务。",
+        dialogId = feedback.ShowDialog("install.exit", "安装尚未完成", "暂停后，下次启动会继续。取消安装或回滚修改会撤回当前运行及排队恢复的任务。",
             "暂停并退出", "留在启动器", accepted =>
             {
                 if (accepted) _ = StopAsync(true); else Interlocked.Exchange(ref _busy, 0);
@@ -46,7 +52,8 @@ internal sealed class DesktopInstallExitCoordinator(
             if (!result.IsSuccess)
             {
                 _stopFailed = true;
-                feedback.Error("未能安全停止安装，请查看任务状态。部分加载器或改名任务暂不支持暂停，可等待完成或选择取消／回滚。");
+                feedback.Error(result.Error?.Code == MinecraftErrors.InvalidRequestCode
+                    ? result.Error.Message : "未能安全停止安装，请查看任务状态后重试。");
                 return;
             }
             _approved = true;

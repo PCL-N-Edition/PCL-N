@@ -9,6 +9,41 @@ namespace Nexa.Desktop.Tests;
 
 internal static partial class Program
 {
+    private static void InstallExitFailureAllowsRetryAfterWorkerBecomesTerminal()
+    {
+        XsrStateStoreBuilder states = new(); TaskCenterStateContract.DeclareState(states);
+        var store = states.Build(); var tasks = new TaskCenterService(store);
+        using var task = tasks.Begin(new("install-recovery:queue:test", "继续安装与修改", ["下载"]));
+        using var feedback = new DesktopFeedbackService();
+        using var closed = new ManualResetEventSlim();
+        int attempts = 0;
+        bool? retryPause = null;
+        XsrCommandRouterBuilder builder = new();
+        builder.Register<MinecraftInstallStopCommand>(MinecraftInstallRoutes.Stop, (command, token) =>
+        {
+            if (Interlocked.Increment(ref attempts) == 1)
+            {
+                task.Fail("回滚冲突");
+                return ValueTask.FromResult(XsrResult.Failure(XsrRuntimeErrors.HandlerFaulted()));
+            }
+            retryPause = command.Pause;
+            return ValueTask.FromResult(XsrResult.Success());
+        });
+        var controller = new DesktopInstallExitCoordinator(store, builder.Build(new NoopDispatchObserver()), feedback, closed.Set);
+        AssertFalse(controller.CanClose());
+        feedback.InvokeDialogAlternate(feedback.Snapshot().Dialog!.Id);
+        AssertTrue(SpinWait.SpinUntil(() =>
+        {
+            controller.CanClose();
+            return feedback.Snapshot().Dialog?.Key == "install.exit.retry";
+        }, TimeSpan.FromSeconds(5)));
+        AssertFalse(closed.IsSet);
+        feedback.ResolveDialog(feedback.Snapshot().Dialog!.Id, true);
+        AssertTrue(closed.Wait(TimeSpan.FromSeconds(5)));
+        AssertEqual(false, retryPause);
+        AssertEqual(2, attempts);
+    }
+
     private static void InstallExitWaitsForStopAndPreservesStayChoice()
     {
         foreach (bool requestPause in new[] { true, false })

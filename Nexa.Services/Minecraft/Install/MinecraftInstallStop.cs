@@ -8,7 +8,10 @@ public sealed partial class MinecraftInstallService
 {
     private readonly object _executionGate = new();
     private readonly HashSet<InstallExecution> _executions = [];
-    private bool _stopping;
+    private readonly HashSet<string> _recoveryRoots = new(MinecraftLibraryService.PathComparer);
+    private readonly SemaphoreSlim _recoveryDiscoveryGate = new(1, 1);
+    private volatile bool _stopping;
+    private bool _stopInProgress;
     private volatile bool _pauseForExit;
 
     private sealed class InstallExecution : IDisposable
@@ -41,6 +44,7 @@ public sealed partial class MinecraftInstallService
         lock (_executionGate)
         {
             if (_stopping) throw new OperationCanceledException("正在停止安装任务。");
+            _recoveryRoots.Add(Path.TrimEndingDirectorySeparator(Path.GetFullPath(command.RootDirectory)));
             var execution = new InstallExecution
             {
                 CanPause = command.Loader is not (InstallLoader.Forge or InstallLoader.NeoForge or InstallLoader.Cleanroom or InstallLoader.OptiFine)
@@ -69,13 +73,17 @@ public sealed partial class MinecraftInstallService
     {
         token.ThrowIfCancellationRequested();
         InstallExecution[] executions;
+        string[] roots;
         lock (_executionGate)
         {
-            if (_stopping) return XsrResult.Failure(MinecraftErrors.InvalidRequest("安装任务正在停止。"));
+            if (_stopInProgress || _stopping && command.Pause)
+                return XsrResult.Failure(MinecraftErrors.InvalidRequest("安装任务正在停止或等待撤回，请稍后重试取消／回滚。"));
             executions = _executions.ToArray();
+            roots = _recoveryRoots.ToArray();
             if (command.Pause && executions.Any(item => !item.CanPause))
                 return XsrResult.Failure(MinecraftErrors.InvalidRequest("当前加载器或改名任务暂不支持暂停，请等待完成或取消安装。"));
             _stopping = true;
+            _stopInProgress = true;
             _pauseForExit = command.Pause;
         }
         try
@@ -87,20 +95,20 @@ public sealed partial class MinecraftInstallService
                 await item.RequestStopAsync().ConfigureAwait(false);
                 await item.Done.Task.ConfigureAwait(false);
             })).ConfigureAwait(false);
-            if (!command.Pause)
-                foreach (var item in executions)
-                {
-                    if (item.Completed || item.Stage is not { } stage || !Directory.Exists(stage)) continue;
-                    string root = Directory.GetParent(Directory.GetParent(stage)!.FullName)!.FullName;
-                    await RollbackInstallationAsync(root, Guid.ParseExact(Path.GetFileName(stage), "N"),
-                        Directory.GetParent(stage)!.Name == ".nexa-install-jobs", CancellationToken.None).ConfigureAwait(false);
-                }
+            // A discovery batch can also be executing an already-requested rollback outside the worker registry.
+            await _recoveryDiscoveryGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                if (!command.Pause) await CancelPendingInstallationsAsync(roots).ConfigureAwait(false);
+            }
+            finally { _recoveryDiscoveryGate.Release(); }
             return XsrResult.Success();
         }
         catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)
         {
             return XsrResult.Failure(MinecraftErrors.InvalidRequest("安装任务未能安全停止：" + error.Message));
         }
+        finally { lock (_executionGate) _stopInProgress = false; }
         // Admission remains closed after a stop request, including failure: no concurrent restart over retained work.
     }
 }
