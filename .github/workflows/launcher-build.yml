@@ -129,7 +129,6 @@ jobs:
             -p:NexaMicrosoftClientId="$NEXA_MS_CLIENT_ID" -p:NexaLittleSkinClientId="$NEXA_LITTLESKIN_CLIENT_ID" \
             --output "$RUNNER_TEMP/launcher"
       - name: Publish isolated NativeAOT JVM host
-        if: runner.os != 'macOS'
         shell: bash
         run: |
           dotnet publish Nexa.Jvm.Host/Nexa.Jvm.Host.csproj --configuration Release \

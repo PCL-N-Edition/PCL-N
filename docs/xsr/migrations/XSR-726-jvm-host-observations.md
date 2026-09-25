@@ -41,14 +41,19 @@ primordial thread, verifies `pthread_main_np`, and owns a Cocoa autorelease pool
 launcher-only `-XstartOnFirstThread`/dock flags instead of forwarding them to JNI; the first-thread
 and dock environment markers mirror OpenJDK's macOS launcher behavior. These markers are JDK
 implementation details, so native macOS CI verifies them along with creation of an AppKit window
-from Java. macOS production routing remains disabled until those checks pass.
-On Windows/Linux Desktop selects a sibling
-`Nexa.Jvm.Host` executable when present; unpackaged development builds and macOS retain the
+from Java. Both macOS x64 and arm64 NativeAOT checks passed before enabling product routing.
+On all three platforms Desktop selects a sibling
+`Nexa.Jvm.Host` executable when present; unpackaged development builds retain the
 Java executable path. MinecraftProcessService accepts the configured absolute Host path,
 validates/encodes the request before spawning, starts output drains before writing stdin and
 closes stdin after transfer. Transfer cancellation/failure terminates the registered child;
 there is no retry through java.exe that could create a duplicate game. The launch plan retains
 the selected Java identity, working directory and root-qualified instance for observations.
+
+Host preparation errors emit fixed diagnostic messages without exception messages, paths or
+argument values. Crash analysis maps missing libraries, runtime architecture mismatches and
+bootstrap failures to the existing Java repair actions. Native smoke includes a nonexistent
+runtime with a fixture token and verifies that diagnosis survives without exposing that token.
 
 Windows .NET apphost CET conflicts with HotSpot initialization on supported hardware (reproduced
 as 0xC0000409 before VM creation). Only the isolated Host opts out via CETCompat=false; Desktop

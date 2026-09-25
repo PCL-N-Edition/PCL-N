@@ -56,6 +56,10 @@ def macos(root, base):
             app = Path("/Applications/Nexa.app")
             executable = app / "Contents/MacOS/Nexa.Desktop"
             require(executable)
+            host = executable.parent / "Nexa.Jvm.Host"
+            check_jvm_host(host)
+            if host.stat().st_uid != 0 or host.stat().st_mode & 0o022:
+                raise RuntimeError("macOS JVM host must be root owned and not user writable")
             if app.stat().st_uid != 0 or executable.stat().st_uid != 0:
                 raise RuntimeError("macOS system payload must be root owned")
             run(executable, "--validate-shell")
