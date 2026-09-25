@@ -4,7 +4,7 @@ namespace Nexa.Xsr.State;
 /// Shared revisioned machinery for one state entry. All mutation happens under the entry gate.
 /// Each entry carries its own <see cref="Revision"/> (its own version, used by deltas and
 /// snapshots) plus the store-global <see cref="ChangeStamp"/> of its last applied mutation
-/// (used for dependency invalidation, where per-entry counters cannot be compared).
+/// (diagnostic allocation order, not a dependency invalidation watermark).
 /// </summary>
 internal abstract class XsrStateNode
 {
@@ -34,7 +34,7 @@ internal abstract class XsrStateNode
 
     /// <summary>
     /// Gets the store-global change stamp of this entry's last applied mutation. Stamps are
-    /// strictly monotonic across the whole store, so any new mutation raises this value.
+    /// allocated globally; concurrent publishers can commit out of allocation order.
     /// </summary>
     public long ChangeStamp => Volatile.Read(ref _changeStamp);
 
@@ -354,7 +354,7 @@ internal sealed class XsrStateDerivedNode<TValue> : XsrStateNode, IXsrStateDeriv
     private TValue? _value;
     private bool _hasValue;
     private bool _computed;
-    private long _watermark;
+    private (long Revision, XsrStateAvailability Availability)[] _versions = [];
 
     internal XsrStateDerivedNode(
         XsrSemanticId semanticId,
@@ -390,111 +390,69 @@ internal sealed class XsrStateDerivedNode<TValue> : XsrStateNode, IXsrStateDeriv
 
         store.FlushNode(this, id);
 
-        // A compute result may only be committed when no dependency mutation happened between
-        // the watermark capture and the compute return — including the first computation. When
-        // inputs keep moving, the read returns the last applied value and recomputes next time.
         for (int attempt = 1; ; attempt++)
         {
-            long before = Watermark(store);
-
+            var before = store.CaptureDependencies(_dependencies, cancellationToken);
             lock (Gate)
             {
-                if (_computed && _watermark == before)
+                if (_computed && _versions.AsSpan().SequenceEqual(before))
                 {
                     change = null;
-                    return new XsrStateValue<TValue>(
-                        id,
-                        CurrentRevisionLocked,
-                        XsrStateAvailability.Available,
-                        true,
-                        _value!);
+                    return Snapshot(id);
                 }
             }
-
-            TValue computed = _compute(new XsrStateReader(store), cancellationToken);
-            long after = Watermark(store);
-
-            if (after == before)
+            var availability = before.Any(item => item.Availability == XsrStateAvailability.Unavailable)
+                ? XsrStateAvailability.Unavailable
+                : before.Any(item => item.Availability == XsrStateAvailability.Stale)
+                    ? XsrStateAvailability.Stale : XsrStateAvailability.Available;
+            bool compute = availability == XsrStateAvailability.Available;
+            TValue? computed = compute ? _compute(new XsrStateReader(store), cancellationToken) : default;
+            var after = store.CaptureDependencies(_dependencies, cancellationToken);
+            if (before.AsSpan().SequenceEqual(after))
             {
                 lock (Gate)
                 {
-                    if (_computed && _watermark == after)
+                    // Another reader may have committed a newer dependency window.
+                    bool superseded = _computed && _versions.Where((item, index) => item.Revision > after[index].Revision).Any();
+                    if (!superseded)
                     {
-                        // A competing reader committed the same window first.
+                        bool changed = AvailabilityLocked != availability
+                            || (compute && (!_hasValue || !EqualityComparer<TValue>.Default.Equals(_value, computed)));
+                        if (compute) { _value = computed; _hasValue = true; }
+                        _computed = true;
+                        _versions = after;
                         change = null;
-                        return new XsrStateValue<TValue>(
-                            id,
-                            CurrentRevisionLocked,
-                            XsrStateAvailability.Available,
-                            true,
-                            _value!);
+                        if (changed)
+                        {
+                            AdvanceLocked(store.NextChangeStamp(), availability);
+                            change = new(id, SemanticId, Kind, CurrentRevisionLocked, AvailabilityLocked,
+                                XsrStateChangeReason.DerivedRecomputed);
+                        }
+                        return Snapshot(id);
                     }
-
-                    bool valueChanged = !_hasValue
-                        || !EqualityComparer<TValue>.Default.Equals(_value, computed);
-
-                    _value = computed;
-                    _hasValue = true;
-                    _computed = true;
-                    _watermark = after;
-
-                    if (valueChanged)
-                    {
-                        AdvanceLocked(store.NextChangeStamp(), XsrStateAvailability.Available);
-                        change = new XsrStateChange(
-                            id,
-                            SemanticId,
-                            Kind,
-                            CurrentRevisionLocked,
-                            AvailabilityLocked,
-                            XsrStateChangeReason.DerivedRecomputed);
-                    }
-                    else
-                    {
-                        change = null;
-                    }
-
-                    return new XsrStateValue<TValue>(
-                        id,
-                        CurrentRevisionLocked,
-                        XsrStateAvailability.Available,
-                        true,
-                        _value!);
                 }
             }
-
             if (attempt >= MaxComputeAttempts)
             {
                 lock (Gate)
                 {
-                    // The freshly computed value is discarded: readers only ever observe applied
-                    // state. The next read retries the computation.
+                    _computed = false;
+                    var fallback = _hasValue ? XsrStateAvailability.Stale : XsrStateAvailability.Unavailable;
                     change = null;
-                    return new XsrStateValue<TValue>(
-                        id,
-                        CurrentRevisionLocked,
-                        _computed ? XsrStateAvailability.Available : XsrStateAvailability.Unavailable,
-                        _hasValue,
-                        _value!);
+                    if (AvailabilityLocked != fallback)
+                    {
+                        AdvanceLocked(store.NextChangeStamp(), fallback);
+                        change = new(id, SemanticId, Kind, CurrentRevisionLocked, AvailabilityLocked,
+                            XsrStateChangeReason.DerivedRecomputed);
+                    }
+                    return Snapshot(id);
                 }
             }
         }
     }
 
-    private long Watermark(XsrStateStore store)
-    {
-        long watermark = 0;
-        foreach (XsrStateId dependency in _dependencies)
-        {
-            long stamp = store.ChangeStampOf(dependency);
-            if (stamp > watermark)
-            {
-                watermark = stamp;
-            }
-        }
-
-        return watermark;
-    }
+    private XsrStateValue<TValue> Snapshot(XsrStateId id) =>
+        new(id, CurrentRevisionLocked, AvailabilityLocked, _hasValue, _value!);
 
     protected override object? CaptureValueLocked() => _hasValue ? _value : null;
 }

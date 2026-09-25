@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Nexa.Xsr.Runtime.Tests" />
     <ProjectReference Include="../Nexa.Core/Nexa.Core.csproj" />
     <ProjectReference Include="../Nexa.Xsr.Abstractions/Nexa.Xsr.Abstractions.csproj" />
   </ItemGroup>

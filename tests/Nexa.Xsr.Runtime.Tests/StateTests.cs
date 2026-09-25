@@ -4,6 +4,45 @@ namespace Nexa.Xsr.Runtime.Tests;
 
 internal static partial class Program
 {
+    private static void StateDerivedTracksLateCommitsAndAvailability()
+    {
+        var builder = new XsrStateStoreBuilder();
+        builder.Cell<int>("audit.a".AsXsrId(), "Owner");
+        builder.Cell<int>("audit.b".AsXsrId(), "Owner");
+        builder.Derived<int>("audit.sum".AsXsrId(), "Owner", ["audit.a".AsXsrId(), "audit.b".AsXsrId()],
+            (reader, token) => reader.Read<int>(reader.Resolve("audit.a".AsXsrId()), token).Value
+                + reader.Read<int>(reader.Resolve("audit.b".AsXsrId()), token).Value);
+        builder.Derived<int>("audit.chain".AsXsrId(), "Owner", ["audit.sum".AsXsrId()],
+            (reader, token) => reader.Read<int>(reader.Resolve("audit.sum".AsXsrId()), token).Value);
+        var store = builder.Build();
+        var a = store.Resolve("audit.a".AsXsrId());
+        var b = store.Resolve("audit.b".AsXsrId());
+        var sum = store.Resolve("audit.sum".AsXsrId());
+        var chain = store.Resolve("audit.chain".AsXsrId());
+        AssertEqual(XsrStateAvailability.Unavailable, store.Read<int>(chain).Availability);
+        AssertFalse(store.Read<int>(chain).HasValue);
+        store.Publish(a, 1);
+        store.Publish(b, 2);
+        AssertEqual(3, store.Read<int>(sum).Value);
+        long delayedStamp = store.NextChangeStamp();
+        store.Publish(b, 20);
+        AssertEqual(21, store.Read<int>(sum).Value);
+        // Deterministic replay of a publisher delayed after stamp allocation, before node commit.
+        ((XsrStateCellNode<int>)store.RequireNode(a)).Publish(a, 10, delayedStamp, delayedStamp, out _);
+        AssertEqual(30, store.Read<int>(sum).Value);
+        long revision = store.Read<int>(sum).Revision;
+        foreach (var availability in new[] { XsrStateAvailability.Stale, XsrStateAvailability.Unavailable, XsrStateAvailability.Available })
+        {
+            store.MarkAvailability(a, availability);
+            var value = store.Read<int>(sum);
+            AssertEqual(availability, value.Availability);
+            AssertEqual(30, value.Value);
+            AssertTrue(value.Revision > revision);
+            revision = value.Revision;
+            AssertEqual(availability, store.Read<int>(chain).Availability);
+        }
+    }
+
     private static void StateAssignsDeterministicIdentifiersAndOwnership()
     {
         XsrStateStoreBuilder first = new();
@@ -275,6 +314,7 @@ internal static partial class Program
         XsrStateStore store = builder.Build();
         XsrStateId input = store.Resolve("race.input".AsXsrId());
         XsrStateId doubled = store.Resolve("race.doubled".AsXsrId());
+        _ = store.Publish(input, 0);
 
         Task<XsrStateValue<int>> readTask = Task.Run(() => store.Read<int>(doubled));
         await computeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);

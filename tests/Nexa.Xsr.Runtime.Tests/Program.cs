@@ -33,6 +33,7 @@ internal static partial class Program
         ("state reads see coherent snapshots", Sync(StateReadsSeeCoherentSnapshots)),
         ("state coalescing applies latest and counts replaced", Sync(StateCoalescingAppliesLatestAndCountsReplaced)),
         ("state collection deltas apply against matching base", Sync(StateCollectionDeltasApplyAgainstMatchingBase)),
+        ("state derived tracks late commits and availability", Sync(StateDerivedTracksLateCommitsAndAvailability)),
         ("state derived recomputes only when inputs change", Sync(StateDerivedRecomputesOnlyWhenInputsChange)),
         ("state derived chains propagate in order", Sync(StateDerivedChainsPropagateInOrder)),
         ("state derived uneven dependency revisions invalidate", Sync(StateDerivedUnevenDependencyRevisionsInvalidate)),

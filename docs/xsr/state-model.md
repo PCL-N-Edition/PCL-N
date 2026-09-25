@@ -50,3 +50,7 @@ Render work reads an immutable local snapshot and registers state dependencies. 
 ## Verification
 
 State implementations require tests for revision ordering, snapshot consistency, derived dependency propagation, cancellation, coalescing, bounded queues, stale transitions, reconnect snapshots, and deterministic replay where applicable.
+
+
+Derived caches use an ordered vector of dependency revisions and availability, never the maximum global stamp. Dependency reads materialize derived parents first. Unavailable/Stale inputs propagate without computing a trusted new value; availability-only changes advance the derived revision. A contended computation that exhausts retries retains its prior value as Stale (or Unavailable without a value).
+

@@ -294,32 +294,25 @@ public sealed class XsrStateStore
         return new XsrStateSnapshot(entries);
     }
 
-    /// <summary>
-    /// Resolves the dependency stamp of one entry: the store-global change stamp of its last
-    /// applied mutation, or for derived entries the newest stamp reachable through their declared
-    /// dependencies. Per-entry revisions cannot serve this purpose because they are local
-    /// counters; stamps are globally monotonic, so any dependency mutation raises this value.
-    /// </summary>
-    internal long ChangeStampOf(XsrStateId stateId)
+    internal (long Revision, XsrStateAvailability Availability)[] CaptureDependencies(
+        IReadOnlyList<XsrStateId> dependencies, CancellationToken token)
     {
-        XsrStateNode node = RequireNode(stateId);
-
-        if (node is not IXsrStateDerivedNode derived)
+        var versions = new (long Revision, XsrStateAvailability Availability)[dependencies.Count];
+        for (int i = 0; i < dependencies.Count; i++)
         {
-            return node.ChangeStamp;
-        }
-
-        long watermark = 0;
-        foreach (XsrStateId dependency in derived.DependencyIds)
-        {
-            long stamp = ChangeStampOf(dependency);
-            if (stamp > watermark)
+            token.ThrowIfCancellationRequested();
+            XsrStateId id = dependencies[i];
+            XsrStateNode node = RequireNode(id);
+            FlushNode(node, id);
+            if (node is IXsrStateDerivedNode derived)
             {
-                watermark = stamp;
+                derived.ReadAppliedObject(this, id, token, out var change);
+                Notify(change);
             }
+            var snapshot = node.Capture(id);
+            versions[i] = (snapshot.Revision, snapshot.Availability);
         }
-
-        return watermark;
+        return versions;
     }
 
     internal void FlushNode(XsrStateNode node, XsrStateId stateId)
@@ -338,7 +331,7 @@ public sealed class XsrStateStore
         Notify(flushed);
     }
 
-    private XsrStateNode RequireNode(XsrStateId stateId)
+    internal XsrStateNode RequireNode(XsrStateId stateId)
     {
         if (!stateId.IsAssigned || stateId.Value.Value > (uint)_nodes.Length)
         {
