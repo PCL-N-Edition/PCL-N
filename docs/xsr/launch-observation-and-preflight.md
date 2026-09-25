@@ -53,6 +53,14 @@ independent of transmission consent.
 
 ## Product preflight
 
+Fabric inventory inspection follows declared `jars[].file` metadata inside the archive, without
+extracting or executing nested JARs. A shared 64 MiB nested-byte budget, 16 MiB metadata budget,
+16 MiB per nested JAR, four nesting levels, 128 children per archive, 2048 archives and 4096
+identities bound traversal. Missing/malformed/ambiguous entries and exhausted limits mark the
+inventory incomplete. These are declared candidates, not proof of loader selection or runtime
+activation. Disabled parents keep nested candidates disabled. Forge JarJar and Quilt nesting
+remain incomplete until their distinct semantics are implemented.
+
 Launch queries request fresh instance metadata and carry the planned heap limit (negative
 means an unknown override). Policy projection consumes this input before subsequent
 projections. Cancellation of a transient instance query cancels its providers; cancellation

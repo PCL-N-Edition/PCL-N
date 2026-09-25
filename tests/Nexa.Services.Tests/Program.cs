@@ -4,6 +4,8 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("nested Fabric inventory reads declared candidates", NestedFabricInventoryReadsDeclaredCandidates),
+        ("nested Fabric inventory rejects incomplete and deep archives", NestedFabricInventoryRejectsIncompleteAndDeepArchives),
         ("online resource model admission and prediction stay bounded", Sync(OnlineModelAdmissionAndPredictionStayBounded)),
         ("online resource download keeps only admitted unexpired data", OnlineModelDownloadKeepsOnlyAdmittedUnexpiredData),
         ("online projection preserves resource semantics", Sync(OnlineProjectionPreservesResourceSemantics)),

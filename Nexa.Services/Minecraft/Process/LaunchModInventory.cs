@@ -21,13 +21,60 @@ public static partial class LaunchModInventoryReader
     private static readonly string[] Formats = ["fabric.mod.json", "quilt.mod.json", "META-INF/neoforge.mods.toml", "META-INF/mods.toml", "mcmod.info"];
     public static async Task<LaunchModInventory> ReadAsync(string gameDirectory, CancellationToken token = default)
     {
-        List<LaunchModIdentity> mods = []; int unknown = 0, files = 0; bool complete = true;
+        List<LaunchModIdentity> mods = []; int unknown = 0, files = 0, archives = 0; bool complete = true;
+        var budget = new ArchiveReadBudget(16 * 1024 * 1024);
+        var nestedBudget = new ArchiveReadBudget(64 * 1024 * 1024);
+        async Task ReadArchiveAsync(Stream input, bool enabled, int depth)
+        {
+            token.ThrowIfCancellationRequested();
+            if (++archives > 2048 || mods.Count >= 4096) { complete = false; return; }
+            using var zip = new ZipArchive(input, ZipArchiveMode.Read, leaveOpen: true);
+            if (zip.GetEntry("META-INF/jarjar/metadata.json") is not null) complete = false;
+            string? format = Formats.FirstOrDefault(name => zip.GetEntry(name) is not null);
+            if (format is null) { unknown++; return; }
+            if (zip.Entries.Count(entry => entry.FullName == format) != 1) { complete = false; return; }
+            var entry = zip.GetEntry(format)!;
+            await using var content = entry.Open(); using var buffer = new MemoryStream();
+            await ArchiveReadBudget.CopyAsync(content, buffer, entry.Length, 256 * 1024, budget, token).ConfigureAwait(false);
+            string text = Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
+            if (format == "quilt.mod.json") complete = false;
+            var parsed = Parse(text, format, enabled);
+            if (parsed.Count == 0) unknown++;
+            else
+            {
+                if (parsed.Count > 4096 - mods.Count) complete = false;
+                mods.AddRange(parsed.Take(4096 - mods.Count));
+            }
+            if (format != "fabric.mod.json" || JsonNode.Parse(text) is not JsonObject fabric || fabric["jars"] is null) return;
+            if (fabric["jars"] is not JsonArray jars || jars.Count > 128 || depth >= 4 && jars.Count > 0)
+            { complete = false; return; }
+            HashSet<string> visited = new(StringComparer.Ordinal);
+            foreach (var node in jars)
+            {
+                token.ThrowIfCancellationRequested();
+                if (node is not JsonObject child || child["file"] is not JsonValue value || !value.TryGetValue<string>(out var name)
+                    || string.IsNullOrWhiteSpace(name) || name.Length > 512 || name.StartsWith('/') || name.Contains('\\')
+                    || name.Contains(':') || name.Split('/').Any(part => part is "" or "." or "..") || !visited.Add(name))
+                { complete = false; continue; }
+                var nested = zip.GetEntry(name);
+                if (nested is null || zip.Entries.Count(item => item.FullName == name) != 1) { complete = false; continue; }
+                try
+                {
+                    await using var nestedInput = nested.Open(); using var nestedBuffer = new MemoryStream();
+                    await ArchiveReadBudget.CopyAsync(nestedInput, nestedBuffer, nested.Length, 16 * 1024 * 1024, nestedBudget, token).ConfigureAwait(false);
+                    nestedBuffer.Position = 0;
+                    await ReadArchiveAsync(nestedBuffer, enabled, depth + 1).ConfigureAwait(false);
+                }
+                catch (Exception e) when (e is IOException or InvalidDataException or System.Text.Json.JsonException or InvalidOperationException)
+                { complete = false; unknown++; }
+                if (archives >= 2048 || mods.Count >= 4096) { complete = false; break; }
+            }
+        }
         try
         {
             string directory = Path.Combine(gameDirectory, "mods");
             if (!Directory.Exists(directory)) return new(mods.AsReadOnly(), 0, true);
             if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0) return new([], 0, false);
-            var budget = new ArchiveReadBudget(16 * 1024 * 1024);
             foreach (string path in Directory.EnumerateFiles(directory))
             {
                 token.ThrowIfCancellationRequested();
@@ -39,22 +86,9 @@ public static partial class LaunchModInventoryReader
                     var info = new FileInfo(path);
                     if ((info.Attributes & FileAttributes.ReparsePoint) != 0 || info.Length > 256 * 1024 * 1024) { unknown++; continue; }
                     await using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, true);
-                    using var zip = new ZipArchive(input, ZipArchiveMode.Read);
-                    if (zip.GetEntry("META-INF/jarjar/metadata.json") is not null) complete = false;
-                    string? format = Formats
-                        .FirstOrDefault(name => zip.GetEntry(name) is not null);
-                    if (format is null) { unknown++; continue; }
-                    var entry = zip.GetEntry(format)!;
-                    await using var content = entry.Open(); using var buffer = new MemoryStream();
-                    await ArchiveReadBudget.CopyAsync(content, buffer, entry.Length, 256 * 1024, budget, token).ConfigureAwait(false);
-                    string text = Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
-                    if (format == "fabric.mod.json" && JsonNode.Parse(text) is JsonObject fabric && fabric["jars"] is JsonArray { Count: > 0 }) complete = false;
-                    if (format == "quilt.mod.json") complete = false; // nested/conditional Quilt dependencies are not resolved here.
-                    var parsed = Parse(text, format, enabled);
-                    if (parsed.Count == 0) unknown++;
-                    else mods.AddRange(parsed);
+                    await ReadArchiveAsync(input, enabled, 0).ConfigureAwait(false);
                 }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException)
+                catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException)
                 { unknown++; }
             }
         }
