@@ -37,7 +37,7 @@ internal sealed partial class LaunchPageController
         _shell.Tree.GetComponent<XsrUiInput>(button)!.Enabled = !editing;
         _shell.Tree.GetComponent<XsrUiText>(button)!.Content = editing ? "保存修改" : "开始安装";
         _shell.Tree.GetComponent<XsrUiSemantic>(button)!.Label = editing ? "保存版本修改" : "开始安装 Java 版 Minecraft";
-        _shell.Tree.GetComponent<XsrUiInput>(_javaInstallEntities["JavaInstallVersionInput"])!.Enabled = !editing;
+        _shell.Tree.GetComponent<XsrUiInput>(_javaInstallEntities["JavaInstallVersionInput"])!.Enabled = true;
         _shell.Tree.MarkDirty(_javaInstallPage, XsrUiDirtyKinds.Paint | XsrUiDirtyKinds.Layout);
     }
 
@@ -62,7 +62,8 @@ internal sealed partial class LaunchPageController
     {
         if (_installEdit is null || _installCatalogQueries is null
             || !_installCatalogQueries.TryResolve(MinecraftInstallEditPlanContract.Query, out XsrQueryId route)) return;
-        string key = string.Join(";", _selectedInstallBuilds.OrderBy(pair => pair.Key).Select(pair => pair.Key + "=" + pair.Value));
+        string name = _shell.Tree.GetComponent<XsrUiTextInput>(_javaInstallEntities["JavaInstallVersionInput"])!.ReadDraft().Trim();
+        string key = name + "\n" + string.Join(";", _selectedInstallBuilds.OrderBy(pair => pair.Key).Select(pair => pair.Key + "=" + pair.Value));
         if (key == _editPlanKey) return;
         var pending = _installCatalogQueries.QueryAsync<MinecraftInstallEditPlanQuery, MinecraftInstallEditPlan>(route,
             new(_installEdit, _selectedInstallBuilds.Select(pair => new InstallBuildSelection(pair.Key, pair.Value)).ToArray()));
@@ -72,9 +73,11 @@ internal sealed partial class LaunchPageController
         _editPlan = completed.Value!;
         _editPlanKey = key;
         var button = _javaInstallEntities["JavaInstallStart"];
-        _shell.Tree.GetComponent<XsrUiText>(button)!.Content = _editPlan.ActionLabel;
-        _shell.Tree.GetComponent<XsrUiSemantic>(button)!.Label = _editPlan.ActionLabel;
-        _shell.Tree.GetComponent<XsrUiInput>(button)!.Enabled = _editPlan.Kind != MinecraftInstallEditKind.Unchanged;
+        bool renamed = name != _installEdit.InstanceId;
+        string label = renamed && _editPlan.Kind == MinecraftInstallEditKind.Unchanged ? "保存改名" : _editPlan.ActionLabel;
+        _shell.Tree.GetComponent<XsrUiText>(button)!.Content = label;
+        _shell.Tree.GetComponent<XsrUiSemantic>(button)!.Label = label;
+        _shell.Tree.GetComponent<XsrUiInput>(button)!.Enabled = name.Length > 0 && (renamed || _editPlan.Kind != MinecraftInstallEditKind.Unchanged);
         _shell.Tree.MarkDirty(button, XsrUiDirtyKinds.Paint | XsrUiDirtyKinds.Layout);
     }
 

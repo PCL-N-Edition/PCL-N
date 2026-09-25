@@ -164,7 +164,7 @@ public sealed partial class MinecraftInstallService
         var editPlan = MinecraftInstallEditPlanner.Evaluate(new(original, selected));
         if (editPlan.Kind == MinecraftInstallEditKind.Unchanged)
         {
-            task.Complete("没有需要修改的选项");
+            if (command.NewInstanceName is null || command.NewInstanceName == instance) task.Complete("没有需要修改的选项");
             return new(instance, Path.Combine(original.RootDirectory, "versions", instance));
         }
         string stage = ForgeInstallService.Contained(original.RootDirectory, ".nexa-modify/" + Guid.NewGuid().ToString("N"));
@@ -246,8 +246,11 @@ public sealed partial class MinecraftInstallService
                         if (item.Backup is null) TryDelete(item.Destination);
                         else File.Copy(item.Backup, item.Destination, overwrite: true);
             }
-            task.Complete($"已修改 {instance}");
-            Installed?.Invoke(original.RootDirectory);
+            if (command.NewInstanceName is null || command.NewInstanceName == instance)
+            {
+                task.Complete($"已修改 {instance}");
+                Installed?.Invoke(original.RootDirectory);
+            }
             return new(instance, Path.GetDirectoryName(targetManifest)!);
         }
         finally { try { Directory.Delete(stage, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }

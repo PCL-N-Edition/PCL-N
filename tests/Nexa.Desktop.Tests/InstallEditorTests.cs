@@ -20,7 +20,11 @@ internal static partial class Program
         var scene = fixture.Shell.Render(size);
         AssertEqual("修改版本", FindByKey(fixture.Shell, scene, "TitleSubpage").Text);
         AssertEqual("无需修改", FindByKey(fixture.Shell, scene, "JavaInstallStart").Text);
-        AssertFalse(FindByKey(fixture.Shell, scene, "JavaInstallVersionInput").IsEnabled);
+        AssertTrue(FindByKey(fixture.Shell, scene, "JavaInstallVersionInput").IsEnabled);
+        fixture.Shell.Renderer.SetTextInputValue(FindByKey(fixture.Shell, scene, "JavaInstallVersionInput").Entity, "renamed");
+        scene = fixture.Shell.Render(size);
+        AssertEqual("保存改名", FindByKey(fixture.Shell, scene, "JavaInstallStart").Text);
+        AssertTrue(FindByKey(fixture.Shell, scene, "JavaInstallStart").IsEnabled);
         var row = scene.Nodes.Single(node => node.Label == "Minecraft 1.20.1，不可更改");
         AssertFalse(row.IsEnabled);
         Emit(fixture.Intents, "ui.install.catalog.select", row.Entity);

@@ -7,8 +7,11 @@ using Nexa.Services.Minecraft.Assets;
 using Nexa.Services.Minecraft.Downloads;
 using Nexa.Services.Minecraft.Launch;
 using Nexa.Services.Minecraft.Libraries;
+using Nexa.Services.Minecraft.Management;
+using Nexa.Services.Settings;
 using Nexa.Services.Tasks;
 using Nexa.Xsr;
+using Nexa.Xsr.State;
 
 namespace Nexa.Services.Minecraft.Install;
 
@@ -28,6 +31,7 @@ public sealed record MinecraftInstallCommand(
     internal bool PreparingEdit { get; init; }
     internal string? ModsRelativeDirectory { get; init; }
     public bool? InheritVanilla { get; init; }
+    public string? NewInstanceName { get; init; }
 }
 
 public sealed record MinecraftInstallResult(string InstanceId, string InstanceDirectory);
@@ -68,6 +72,8 @@ public sealed partial class MinecraftInstallService : IDisposable
     private readonly Func<string, IDownloadConnection>? _connectionFactory;
     private readonly IMinecraftLoaderInstaller _loaderInstaller;
     private readonly Func<bool>? _inheritVanilla;
+    private readonly SettingsPolicyService? _settingsPolicy;
+    private readonly XsrStateStore? _hostStore;
 
     public MinecraftInstallService(
         TaskCenterService tasks,
@@ -77,7 +83,9 @@ public sealed partial class MinecraftInstallService : IDisposable
         IMinecraftInstallMetadataSource? metadata = null,
         Func<string, IDownloadConnection>? connectionFactory = null,
         IMinecraftLoaderInstaller? loaderInstaller = null,
-        Func<bool>? inheritVanilla = null)
+        Func<bool>? inheritVanilla = null,
+        SettingsPolicyService? settingsPolicy = null,
+        XsrStateStore? hostStore = null)
     {
         _tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
         _downloads = downloads ?? throw new ArgumentNullException(nameof(downloads));
@@ -88,10 +96,12 @@ public sealed partial class MinecraftInstallService : IDisposable
         _connectionFactory = connectionFactory;
         _loaderInstaller = loaderInstaller ?? new ForgeInstallService(_downloads, _http, connectionFactory);
         _inheritVanilla = inheritVanilla;
+        _settingsPolicy = settingsPolicy; _hostStore = hostStore;
     }
 
     /// <summary>Raised with the Minecraft root once an install commits, so the version library can rescan.</summary>
     public event Action<string>? Installed;
+    public event Action<string, string, string>? Renamed;
 
     public async Task<XsrResult<MinecraftInstallResult>> InstallAsync(
         MinecraftInstallCommand command,
@@ -105,6 +115,7 @@ public sealed partial class MinecraftInstallService : IDisposable
         string title = command.Loader is null
             ? $"安装 Minecraft {command.GameVersion}"
             : $"安装 Minecraft {command.GameVersion} · {loaderName}";
+        if (command.EditFingerprint is not null) title = "修改版本 " + command.InstanceName;
         string taskId = "install:" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
         using ITaskCenterTask task = _tasks.Begin(new TaskCenterStart(taskId, title, StagePlan));
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(
@@ -112,9 +123,28 @@ public sealed partial class MinecraftInstallService : IDisposable
         try
         {
             command = command with { InheritVanilla = command.InheritVanilla ?? _inheritVanilla?.Invoke() ?? false };
+            bool renaming = command.NewInstanceName is { } requested && requested != command.InstanceName;
+            if (renaming && (command.EditFingerprint is null || _settingsPolicy is null || _hostStore is null
+                || !MinecraftVersionPaths.IsSafeReference(command.NewInstanceName)
+                || Path.Exists(Path.Combine(command.RootDirectory, "versions", command.NewInstanceName!))
+                    && !MinecraftLibraryService.PathComparer.Equals(command.NewInstanceName, command.InstanceName)))
+                throw new InvalidDataException("无法改名：请检查名称冲突或重新打开修改页。");
+            if (command.EditFingerprint is not null && _hostStore is not null)
+                MinecraftInstanceRenamer.EnsureIdle(command.RootDirectory, _hostStore, linked.Token);
             MinecraftInstallResult result = command.EditFingerprint is null
                 ? await RunAsync(command, task, linked.Token).ConfigureAwait(false)
                 : await ReinstallAsync(command, task, linked.Token).ConfigureAwait(false);
+            if (renaming)
+            {
+                var current = await MinecraftInstallEditService.ReadAsync(new(command.RootDirectory, result.InstanceId), linked.Token).ConfigureAwait(false);
+                await MinecraftInstanceRenamer.RenameAsync(command.RootDirectory, result.InstanceId, command.NewInstanceName!,
+                    current.GameVersion, current.Fingerprint, _settingsPolicy!, _hostStore!, linked.Token).ConfigureAwait(false);
+                string old = result.InstanceId;
+                result = new(command.NewInstanceName!, Path.Combine(command.RootDirectory, "versions", command.NewInstanceName!));
+                task.Complete("已修改 " + result.InstanceId);
+                Renamed?.Invoke(command.RootDirectory, old, result.InstanceId);
+                Installed?.Invoke(command.RootDirectory);
+            }
             return XsrResult.Success(result);
         }
         catch (OperationCanceledException) when (linked.IsCancellationRequested)

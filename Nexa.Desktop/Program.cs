@@ -273,6 +273,11 @@ internal static class Program
         using MinecraftDropController dropController = new(platformActions, folderImports, library.Commands, host.StateStore, feedback);
         // A committed install grows the version library immediately: rescan the active root.
         installRun.Service.Installed += root => _ = library.Service.RefreshAsync();
+        installRun.Service.Renamed += (root, previous, current) =>
+        {
+            var remembered = library.Service.RememberRenamedInstance(root, previous, current);
+            if (!remembered.IsSuccess) feedback.Warn("版本已改名，但未能保存选择，请在版本列表中重新选择。");
+        };
         using LaunchPageController launchPage = new(
             shell,
             uiIntents,

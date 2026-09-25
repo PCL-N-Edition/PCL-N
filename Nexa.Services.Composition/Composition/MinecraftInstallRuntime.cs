@@ -41,7 +41,8 @@ public static class MinecraftInstallRuntimeComposer
             catalogSource ?? new HttpInstallCatalogSource(http),
             http,
             inheritVanilla: () => host.SettingsPolicy.Read(new()).Value?.Values
-                .FirstOrDefault(value => value.Key == "install.inherit-vanilla")?.Value.Value == "true");
+                .FirstOrDefault(value => value.Key == "install.inherit-vanilla")?.Value.Value == "true",
+            settingsPolicy: host.SettingsPolicy, hostStore: host.StateStore);
         XsrCommandRouterBuilder commands = new();
         commands.Register<MinecraftInstallCommand>(MinecraftInstallRoutes.Run,
             async (command, token) =>

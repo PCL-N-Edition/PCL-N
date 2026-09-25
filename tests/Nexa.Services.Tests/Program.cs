@@ -5,6 +5,8 @@ internal static partial class Program
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
         ("recovery captures publish complete manifests only", RecoveryCaptureCommitsOnlyCompleteManifests),
+        ("instance rename preserves data settings and dependencies", InstanceRenamePreservesDataSettingsAndDependencies),
+        ("instance rename rejects active games and rolls back settings failure", InstanceRenameRejectsActiveGamesAndRollsBackSettingsFailure),
         ("recovery plans include dependencies and protect worlds", RecoveryPlanIncludesDependenciesAndProtectsUserWorlds),
         ("recovery plans use shared game scope and bounded manifests", RecoveryPlanUsesSharedGameDirectoryAndBoundsManifestReads),
         ("recovery objects deduplicate and verify actual bytes", RecoveryObjectsDeduplicateAndVerifyActualBytes),

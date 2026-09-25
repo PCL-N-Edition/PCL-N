@@ -761,12 +761,13 @@ internal sealed partial class LaunchPageController : IDisposable
 
     private void NotifyInstallUnavailable()
     {
-        if (_editingInstall && _editPlan?.Kind == MinecraftInstallEditKind.Unchanged) return;
         if (_editingInstall && _installEdit is null) { _feedback.Warn("正在读取版本信息。"); return; }
         if (!_installGameChosen) { _feedback.Warn("请先选择 Minecraft 版本。"); return; }
         if (QueryInstallEligibility()?.CommitError is { } conflict) { _feedback.Warn(conflict); return; }
         string requested = _shell.Tree.GetComponent<XsrUiTextInput>(_javaInstallEntities["JavaInstallVersionInput"])
             ?.ReadDraft().Trim() ?? string.Empty;
+        if (_editingInstall && requested.Length == 0) { _feedback.Warn("请输入版本名称。"); return; }
+        if (_editingInstall && _editPlan?.Kind == MinecraftInstallEditKind.Unchanged && requested == _installEdit?.InstanceId) return;
         string version = requested.Length == 0 ? _selectedInstallVersion : requested;
         string selection = _selectedInstallBuilds.Count == 0 ? _selectedInstallLoader : string.Join(" + ", _selectedInstallBuilds.Select(pair => pair.Key + " " + pair.Value));
         // The selection is real: dispatch the install run and follow it in the task center.
@@ -819,7 +820,8 @@ internal sealed partial class LaunchPageController : IDisposable
             _selectedInstallVersion,
             primary?.Kind,
             primary?.Build,
-            addons, _installEdit?.InstanceId ?? (version == _selectedInstallVersion ? null : version), _installEdit?.Fingerprint));
+            addons, _installEdit?.InstanceId ?? (version == _selectedInstallVersion ? null : version), _installEdit?.Fingerprint)
+        { NewInstanceName = _installEdit is null ? null : version });
         // Manual starts watch their task immediately (parity with the legacy task manager).
         _intents.Emit(XsrSemanticId.Parse("ui.tasks.open"), default, XsrCorrelationId.Create());
         return true;

@@ -292,6 +292,25 @@ public sealed class MinecraftLibraryService : IDisposable
 
     private XsrResult Remember(string root, string id) => Save(_document with
     { Directories = [.. _document.Directories.Select(item => PathComparer.Equals(item.Path, root) ? item with { SelectedInstanceId = id } : item)] });
+    public XsrResult RememberRenamedInstance(string root, string oldName, string newName)
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!MinecraftVersionPaths.IsSafeReference(newName)) return XsrResult.Failure(MinecraftErrors.InvalidRequest("版本名称无效。"));
+            if (!_document.Directories.Any(item => PathComparer.Equals(item.Path, root) && item.SelectedInstanceId == oldName))
+                return XsrResult.Success();
+            var result = Remember(root, newName);
+            if (result.IsSuccess && PathComparer.Equals(root, _document.ActiveDirectory))
+            {
+                // The install completion refresh follows this notification. Reject any older
+                // scan in between so it cannot persist the now-removed instance name again.
+                ++_generation;
+                _scanCancellation?.Cancel();
+            }
+            return result;
+        }
+    }
     private XsrResult Save(MinecraftLibraryDocument document)
     {
         if (_configurationError is not null) return XsrResult.Failure(_configurationError);
