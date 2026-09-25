@@ -10,6 +10,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def required_tool(variable):
+    path = Path(os.environ[variable])
+    if not path.is_absolute() or not path.is_file():
+        raise ValueError(f"Missing isolated build tool: {variable}")
+    return path
+
+
 def run(*args, **kwargs):
     subprocess.run([str(arg) for arg in args], check=True, **kwargs)
 
@@ -23,7 +30,7 @@ def archive(source, output, name):
 
 
 def windows(payload, output, work, base, version, prefix, arch):
-    iscc = shutil.which("ISCC") or r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+    iscc = required_tool("NEXA_ISCC")
     icon = ROOT / "Nexa.Desktop/Assets/icon.ico"
     run(iscc, f"/DPayload={payload}", f"/DProductVersion={version}", f"/DNumericVersion={prefix}",
         f"/DInstallArch={'arm64' if arch == 'arm64' else 'x64compatible'}", f"/DOutputDir={output}",
@@ -97,7 +104,8 @@ def linux(payload, output, work, base, version, prefix, arch):
             "--url", "https://github.com/PCL-N-Edition/PCL-N", "--license", "Apache-2.0", *options,
             "-C", appdir, "-p", output / f"{base}.{package_type}", "usr")
     environment = dict(os.environ, ARCH="aarch64" if arch == "arm64" else "x86_64", APPIMAGE_EXTRACT_AND_RUN="1")
-    run(os.environ["APPIMAGETOOL"], appdir, output / f"{base}.AppImage", env=environment)
+    run(required_tool("APPIMAGETOOL"), "--runtime-file", required_tool("APPIMAGE_RUNTIME"),
+        appdir, output / f"{base}.AppImage", env=environment)
     archive(payload, output / f"{base}.portable.tar.gz", "Nexa")
     run("dpkg-deb", "--info", output / f"{base}.deb")
     run("rpm", "-qip", output / f"{base}.rpm")

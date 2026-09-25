@@ -20,16 +20,16 @@ jobs:
       commit: ${{ steps.version.outputs.commit }}
       release: ${{ steps.version.outputs.release }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
       - run: python -m unittest discover -s eng/release -p 'test_*.py'
       - id: version
         run: python eng/release/metadata.py --base origin/dev --output release-metadata
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-metadata
           path: release-metadata/*
@@ -55,11 +55,11 @@ jobs:
       VERSION_SEQUENCE: ${{ needs.metadata.outputs.sequence }}
       COMMIT_SHORT: ${{ needs.metadata.outputs.commit }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           global-json-file: global.json
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
       - name: Install Linux packaging tools
@@ -72,7 +72,9 @@ jobs:
           sudo gem install fpm -v 1.16.0 --no-document
           arch=x86_64
           if [[ '${{ matrix.rid }}' == linux-arm64 ]]; then arch=aarch64; fi
-          curl --fail --location --retry 3 "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-${arch}.AppImage" -o "$RUNNER_TEMP/appimagetool"
+          python eng/release/fetch_tool.py "appimagetool-${arch}" "$RUNNER_TEMP/appimagetool"
+          python eng/release/fetch_tool.py "runtime-${arch}" "$RUNNER_TEMP/appimage-runtime"
+          echo "APPIMAGE_RUNTIME=$RUNNER_TEMP/appimage-runtime" >> "$GITHUB_ENV"
           chmod +x "$RUNNER_TEMP/appimagetool"
           echo "APPIMAGETOOL=$RUNNER_TEMP/appimagetool" >> "$GITHUB_ENV"
       - name: Install Windows packaging tools
@@ -81,11 +83,12 @@ jobs:
         run: |
           dotnet tool install --global wix --version 6.0.2
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (!(Test-Path 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe')) {
-            Invoke-WebRequest 'https://files.jrsoftware.org/is/6/innosetup-6.4.3.exe' -OutFile "$env:RUNNER_TEMP\innosetup.exe"
-            $install = Start-Process -FilePath "$env:RUNNER_TEMP\innosetup.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-' -Wait -PassThru -WindowStyle Hidden
-            if ($install.ExitCode -ne 0) { exit $install.ExitCode }
-          }
+          python eng/release/fetch_tool.py innosetup "$env:RUNNER_TEMP\innosetup.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $innoDirectory = Join-Path $env:RUNNER_TEMP 'nexa-inno'
+          $install = Start-Process -FilePath "$env:RUNNER_TEMP\innosetup.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', ('/DIR="' + $innoDirectory + '"') -Wait -PassThru -WindowStyle Hidden
+          if ($install.ExitCode -ne 0) { exit $install.ExitCode }
+          "NEXA_ISCC=$innoDirectory\ISCC.exe" >> $env:GITHUB_ENV
       - name: Resolve public OAuth client ids
         shell: bash
         env:
@@ -143,7 +146,7 @@ jobs:
       - name: Build native installers and portable archive
         shell: bash
         run: python eng/release/package.py --payload "$RUNNER_TEMP/launcher" --output artifacts --rid '${{ matrix.rid }}' --version "$PRODUCT_VERSION"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Nexa-${{ matrix.rid }}
           path: artifacts/*
@@ -157,19 +160,19 @@ jobs:
       PRODUCT_VERSION: ${{ needs.metadata.outputs.version }}
       VERSION_CHANNEL: ${{ needs.metadata.outputs.channel }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: Nexa-*
           path: artifacts
           merge-multiple: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: release-metadata
           path: release-metadata
       - name: Require every package and calculate checksums
         run: python3 eng/release/verify.py artifacts "$PRODUCT_VERSION"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Nexa-complete-distribution
           path: |
