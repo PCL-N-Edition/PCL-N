@@ -5,8 +5,9 @@ internal static class InstanceRecoveryOperationGate
 {
     internal sealed class Entry
     {
-        internal int References, Operations;
-        internal Lease? Capture;
+        internal int References, Operations, WaitingRestores;
+        internal Lease? Capture, Restore;
+        internal TaskCompletionSource Changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     private static readonly object Sync = new();
@@ -16,13 +17,11 @@ internal static class InstanceRecoveryOperationGate
     {
         private readonly string _root;
         private readonly Entry _entry;
-        private readonly bool _capture;
+        private readonly LeaseKind _kind;
         private int _disposed;
         private readonly CancellationTokenSource _stop = new();
-        private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal CancellationToken Token => _stop.Token;
-        internal Task Released => _released.Task;
-        internal Lease(string root, Entry entry, bool capture) { _root = root; _entry = entry; _capture = capture; }
+        internal Lease(string root, Entry entry, LeaseKind kind) { _root = root; _entry = entry; _kind = kind; }
         internal void Cancel()
         {
             try { _stop.Cancel(); } catch (ObjectDisposedException) { }
@@ -32,12 +31,23 @@ internal static class InstanceRecoveryOperationGate
             if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
             lock (Sync)
             {
-                if (_capture) _entry.Capture = null; else _entry.Operations--;
+                if (_kind == LeaseKind.Capture) _entry.Capture = null;
+                else if (_kind == LeaseKind.Restore) _entry.Restore = null;
+                else _entry.Operations--;
+                Pulse(_entry);
                 ReleaseReference(_root, _entry);
             }
-            _released.TrySetResult();
             _stop.Dispose();
         }
+    }
+
+    internal enum LeaseKind { Operation, Capture, Restore }
+
+    private static void Pulse(Entry entry)
+    {
+        var changed = entry.Changed;
+        entry.Changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        changed.TrySetResult();
     }
 
     private static string Normalize(string root) => Path.IsPathFullyQualified(root)
@@ -62,8 +72,8 @@ internal static class InstanceRecoveryOperationGate
         lock (Sync)
         {
             var entry = Retain(root);
-            if (entry.References != 1 || entry.Operations != 0 || entry.Capture is not null) { ReleaseReference(root, entry); return null; }
-            return entry.Capture = new Lease(root, entry, true);
+            if (entry.References != 1 || entry.Operations != 0 || entry.Capture is not null || entry.Restore is not null || entry.WaitingRestores != 0) { ReleaseReference(root, entry); return null; }
+            return entry.Capture = new Lease(root, entry, LeaseKind.Capture);
         }
     }
 
@@ -77,18 +87,21 @@ internal static class InstanceRecoveryOperationGate
             while (true)
             {
                 token.ThrowIfCancellationRequested();
-                Lease capture;
+                Lease? capture;
+                Task changed;
                 lock (Sync)
                 {
-                    if (entry.Capture is null)
+                    if (entry.Capture is null && entry.Restore is null
+                        && (entry.WaitingRestores == 0 || entry.Operations > 0))
                     {
                         entry.Operations++;
-                        return new Lease(root, entry, false);
+                        return new Lease(root, entry, LeaseKind.Operation);
                     }
                     capture = entry.Capture;
+                    changed = entry.Changed.Task;
                 }
-                capture.Cancel();
-                await capture.Released.WaitAsync(token).ConfigureAwait(false);
+                capture?.Cancel();
+                await changed.WaitAsync(token).ConfigureAwait(false);
             }
         }
         catch
@@ -97,4 +110,43 @@ internal static class InstanceRecoveryOperationGate
             throw;
         }
     }
+
+    internal static async ValueTask<Lease> EnterRestoreAsync(string root, CancellationToken token = default)
+    {
+        root = Normalize(root);
+        Entry entry;
+        lock (Sync) { entry = Retain(root); entry.WaitingRestores++; }
+        try
+        {
+            while (true)
+            {
+                token.ThrowIfCancellationRequested();
+                Lease? capture;
+                Task changed;
+                lock (Sync)
+                {
+                    if (entry.Capture is null && entry.Restore is null && entry.Operations == 0)
+                    {
+                        entry.WaitingRestores--;
+                        return entry.Restore = new Lease(root, entry, LeaseKind.Restore);
+                    }
+                    capture = entry.Capture;
+                    changed = entry.Changed.Task;
+                }
+                capture?.Cancel();
+                await changed.WaitAsync(token).ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            lock (Sync)
+            {
+                entry.WaitingRestores--;
+                Pulse(entry);
+                ReleaseReference(root, entry);
+            }
+            throw;
+        }
+    }
+
 }
