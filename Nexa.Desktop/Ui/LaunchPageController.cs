@@ -1456,7 +1456,7 @@ internal sealed partial class LaunchPageController : IDisposable
         Publish(LaunchPageState.AccountAddVisibleKey, !onboarding);
         Publish(LaunchPageState.AccountHintVisibleKey, roster.Count == 0 || roster.Availability == XsrStateAvailability.Unavailable);
         Publish(LaunchPageState.AccountHintKey, roster.Availability == XsrStateAvailability.Unavailable
-            ? "账户档案读取失败。\n请检查文件或导入备份。" : roster.Count == 0
+            ? "账户安全存储不可用，原档案已保留。\n请解锁系统密钥库并重启后重试。" : roster.Count == 0
             ? "还没有账户档案。\n点击上方＋添加，或导入旧档案。"
             : string.Empty);
         if (_presentedAccountPicker is { } previous && previous != picker

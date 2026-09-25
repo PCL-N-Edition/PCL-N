@@ -31,9 +31,9 @@ atomic writes, traversal refusal, and a size cap. Settings, profiles, logs, the 
 
 ## Deliberate scope
 
-No encryption-at-rest and no independent audit log yet — credentials in the profile roster
-rely on the platform's file permissions exactly as the legacy launcher did; an OS keychain
-port is a future decision. The Network and Telemetry families are their own units.
+The generic file port does not encrypt arbitrary files or maintain an independent audit log.
+Live account credentials instead use [protected account storage](account-protected-storage.md)
+with OS-backed protection. The Network and Telemetry families are their own units.
 
 ## Verification
 

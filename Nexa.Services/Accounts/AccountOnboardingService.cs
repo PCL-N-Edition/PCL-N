@@ -144,7 +144,7 @@ public sealed class AccountOnboardingService : IDisposable
                 operation.Trace?.Stage("persist_profile");
                 Publish(new(operation.Generation, AccountLoginPhase.Saving, "正在保存档案…", Progress: .95));
                 XsrResult<int> saved = AccountLoginProfiles.Upsert(_accounts, profile);
-                if (!saved.IsSuccess) throw new OnboardingFailure("档案保存失败，请检查数据目录权限后重试。", saved.Error!.Code.Value);
+                if (!saved.IsSuccess) throw new OnboardingFailure("档案保存失败，请解锁系统密钥库并检查数据目录权限后重试。", saved.Error!.Code.Value);
                 _accounts.SelectProfile(saved.Value);
                 Publish(new(operation.Generation, AccountLoginPhase.Completed, "档案已添加", Progress: 1));
                 operation.Trace?.Complete($"profile_index={saved.Value}");
@@ -165,7 +165,7 @@ public sealed class AccountOnboardingService : IDisposable
                 if (!IsCurrent(operation)) return;
                 operation.Trace?.Stage("persist_imported_profiles", $"count={profiles.Count}");
                 XsrResult<int> imported = _accounts.ImportProfiles(profiles);
-                if (!imported.IsSuccess) throw new OnboardingFailure("无法导入档案，请检查文件内容与数据目录权限。", imported.Error!.Code.Value);
+                if (!imported.IsSuccess) throw new OnboardingFailure("无法导入档案，请解锁系统密钥库并检查文件内容与目录权限。", imported.Error!.Code.Value);
                 Publish(new(operation.Generation, AccountLoginPhase.Completed,
                     imported.Value > 0 ? $"已导入 {imported.Value} 个档案" : "这些档案已存在，无需重复导入", Progress: 1));
                 operation.Trace?.Complete($"added={imported.Value}");

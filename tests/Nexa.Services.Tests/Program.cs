@@ -4,6 +4,9 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("protected profiles migrate without plaintext copies", ProtectedProfilesMigrateWithoutPlaintextCopies),
+        ("protected profile failures preserve original", ProtectedProfileFailuresPreserveOriginal),
+        ("native profile protection uses current user", NativeProfileProtectionUsesCurrentUser),
         ("Microsoft refresh cannot restore removed accounts", MicrosoftRefreshCannotRestoreRemovedAccounts),
         ("first run persists storage and consent without overwriting", FirstRunPersistsChoiceAndPreservesExistingData),
         ("first run failed commit rolls back and can retry", FirstRunFailedCommitCanRetryWithoutOverwriting),

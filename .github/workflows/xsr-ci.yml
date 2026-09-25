@@ -11,6 +11,41 @@ permissions:
   contents: read
 
 jobs:
+  account-security:
+    name: Native account protection (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      NEXA_TEST_SYSTEM_KEYRING: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Prepare Linux keyring
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libsecret-tools gnome-keyring dbus-x11 clang zlib1g-dev
+      - name: Prepare disposable macOS keychain
+        if: runner.os == 'macOS'
+        run: |
+          security create-keychain -p '' "$RUNNER_TEMP/nexa-test.keychain-db"
+          security default-keychain -s "$RUNNER_TEMP/nexa-test.keychain-db"
+          security unlock-keychain -p '' "$RUNNER_TEMP/nexa-test.keychain-db"
+      - name: Publish NativeAOT account tests
+        run: dotnet publish tests/Nexa.Services.Tests -c Release -p:PublishAot=true -o native-account-tests
+      - name: Run Windows native protection
+        if: runner.os == 'Windows'
+        run: ./native-account-tests/Nexa.Services.Tests.exe "native profile protection"
+      - name: Run macOS native protection
+        if: runner.os == 'macOS'
+        run: ./native-account-tests/Nexa.Services.Tests "native profile protection"
+      - name: Run Linux native protection
+        if: runner.os == 'Linux'
+        run: dbus-run-session -- sh -c 'printf "\n" | gnome-keyring-daemon --unlock; ./native-account-tests/Nexa.Services.Tests "native profile protection"'
   build:
     name: Build and architecture gates
     runs-on: ubuntu-latest

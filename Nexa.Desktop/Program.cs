@@ -187,7 +187,7 @@ internal static class Program
         FoundationHost host = FoundationComposer.Compose(
             new LauncherSettingsJsonPort(System.IO.Path.Combine(settingsFolder, "settings.json"), settingsSchema),
             settingsSchema,
-            new LaunchProfileFilePort(System.IO.Path.Combine(profilesFolder, "profiles.json")),
+            new ProtectedLaunchProfilePort(System.IO.Path.Combine(profilesFolder, "profiles.json")),
             observer: stateObservation,
             declareHostState: LaunchPageState.DeclareState,
             minecraftRootDirectory: minecraftRootDirectory,

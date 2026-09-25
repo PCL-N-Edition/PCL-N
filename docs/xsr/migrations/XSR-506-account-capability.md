@@ -9,6 +9,10 @@ in the persistence layer and service results; they never enter published state.
 
 ## Locked contract
 
+Live Desktop persistence supersedes the historical plaintext/quarantine rules below with
+[protected account storage](account-protected-storage.md). The original JSON shape remains
+the compatibility adapter and explicit read-only import format only.
+
 ### Refresh identity guard (SEC-02, 2026-09-25)
 
 Online refresh captures a service-owned roster generation while validating the original
