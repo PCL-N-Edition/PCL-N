@@ -35,9 +35,8 @@ internal static partial class Program
             AppFolders folders = new(directory);
             SafeFilePort port = new(folders);
 
-            // The port confines to the data ROOT (cross-folder reach is allowed), so the
-            // escape attempts must actually leave the root.
-            foreach (string evil in (string[])["../../outside.bin", "../Nested/../../outside.bin"])
+            // Every operation confines to its explicitly selected folder.
+            foreach (string evil in (string[])["../../outside.bin", "../Nested/../../outside.bin", "../profiles/secret.json", "..\\settings\\secret.json", "/absolute.bin"])
             {
                 bool writeRejected = false;
                 try
@@ -211,6 +210,23 @@ internal static partial class Program
             AssertFalse(tinyPort.Exists(FolderNames.Cache, "big.bin"));
             await tinyPort.WriteBytesAsync(FolderNames.Cache, "ok.bin", [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
             AssertTrue(tinyPort.Exists(FolderNames.Cache, "ok.bin"));
+            AssertEqual(8, (await tinyPort.TryReadBytesAsync(FolderNames.Cache, "ok.bin"))!.Length);
+            File.WriteAllBytes(folders.ResolveSafePath(FolderNames.Cache, "oversize.bin"), new byte[9]);
+            foreach (bool text in new[] { false, true })
+            {
+                bool refused = false;
+                try
+                {
+                    if (text) await tinyPort.TryReadTextAsync(FolderNames.Cache, "oversize.bin");
+                    else await tinyPort.TryReadBytesAsync(FolderNames.Cache, "oversize.bin");
+                }
+                catch (InvalidDataException) { refused = true; }
+                AssertTrue(refused);
+            }
+            File.WriteAllBytes(folders.ResolveSafePath(FolderNames.Cache, "bom.txt"), [0xEF, 0xBB, 0xBF, 65]);
+            AssertEqual("A", await tinyPort.TryReadTextAsync(FolderNames.Cache, "bom.txt"));
+            File.WriteAllBytes(folders.ResolveSafePath(FolderNames.Cache, "utf16.txt"), [0xFF, 0xFE, 65, 0]);
+            AssertEqual("A", await tinyPort.TryReadTextAsync(FolderNames.Cache, "utf16.txt"));
 
             // Default root resolution honors the environment override.
             Environment.SetEnvironmentVariable("PCL_NEXA_DATA_DIR", directory);

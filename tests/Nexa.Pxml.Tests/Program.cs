@@ -9,6 +9,7 @@ internal static partial class Program
     private static readonly (string Name, Action Body)[] TestCases =
     [
         // XSR-207: PXML grammar and parser.
+        ("document resource budgets are enforced before recursion", DocumentResourceBudgetsAreEnforcedBeforeRecursion),
         ("simple document parses structurally", SimpleDocumentParsesStructurally),
         ("state bindings are recognized", StateBindingsAreRecognized),
         ("nested children keep document order", NestedChildrenKeepDocumentOrder),

@@ -6,6 +6,11 @@ Wave 3 starts the PXML pipeline: the structural grammar and parser that turn PXM
 
 ## Locked contract
 
+- Before building a DOM, a streaming pass enforces at most 1 Mi UTF-16 characters,
+  128 element levels, 16,384 elements, 65,536 XML nodes and 128 attributes per element.
+  Resource-limit failures are deterministic `PxmlParseException`s. Existing embedded
+  templates remain well below these ceilings; external untrusted loading is not assumed.
+
 - PXML is XML with one namespace: `https://pcln.dev/pxml/2026`. Documents declaring any other namespace are rejected; documents without a namespace declaration are accepted.
 - A document has exactly one root element. Elements carry properties (attributes) only — text content is rejected, so the surface is unambiguous. Property names are unique per element; duplicates are rejected.
 - Property values are literals or state bindings. A state binding is exactly `{state path}` where the path is non-empty with no whitespace or control characters; braces in any other form are rejected. There is no command binding syntax — commands are plain semantic-ID references on command-bearing elements and resolve at compile time.

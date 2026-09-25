@@ -15,9 +15,11 @@ atomic writes, traversal refusal, and a size cap. Settings, profiles, logs, the 
   lives at `<root>/UpdateState/installed.blockmap.json`.
 - `AppFolders` confines everything to one resolved root. `ResolveSafePath` normalizes
   separators, requires single-segment canonical folder names, and refuses any resolution
-  that escapes the root — with case-insensitive comparison on Windows and ordinal
-  comparison elsewhere. The boundary is the root: reaching a sibling canonical folder is
-  allowed, leaving the tree never is. `EnsureFolder` creates on first use.
+  that escapes the selected folder — with case-insensitive comparison on Windows and ordinal
+  comparison elsewhere. This security correction supersedes root-wide sibling traversal:
+  callers must explicitly select another folder rather than reach it using `..`.
+  `EnsureFolder` creates on first use. This API is a trusted composition utility, not a
+  delegated plugin capability; folder selection itself must remain host-controlled.
 - Default root resolution is a composition decision with one rule: the `Nexa_NEXA_DATA_DIR`
   environment variable wins, otherwise the per-user local application data directory under
   `Nexa` (the branch product name; the folder name follows the official rename when it
@@ -26,7 +28,8 @@ atomic writes, traversal refusal, and a size cap. Settings, profiles, logs, the 
   atomic — content lands in a unique temporary file and then replaces the destination with
   bounded retries, so readers never observe a torn file and failed writes leave no debris;
   the destination directory tree is created on demand; a per-file size cap (default 64 MiB)
-  rejects oversized writes before anything touches the disk; deletes report whether they
+  rejects oversized writes before anything touches the disk and bounds actual bytes read
+  before text decoding (including BOM detection); deletes report whether they
   removed anything. All operations refuse traversal identically.
 
 ## Deliberate scope
@@ -38,8 +41,8 @@ with OS-backed protection. The Network and Telemetry families are their own unit
 ## Verification
 
 `tests/Nexa.Services.Tests` (110 executable tests, 4 new) covers: canonical folder
-resolution and creation; traversal refusal on write and read for genuinely escaping paths
-while in-tree cross-folder reach stays legal; UTF-8 text (including non-ASCII) and binary
+resolution and creation; traversal refusal on write and read including sibling-folder escapes;
+UTF-8 text (including non-ASCII and BOM detection) and binary
 round trips, overwrite, absence-as-null, atomic-write cleanliness (no temporary debris), and
 deletes; and the size cap rejecting oversized writes without side effects plus default-root
 resolution honoring the environment override. Runs under CoreCLR and NativeAOT in CI.

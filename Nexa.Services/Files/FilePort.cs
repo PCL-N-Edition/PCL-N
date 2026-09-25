@@ -71,23 +71,26 @@ public sealed class AppFolders
 
     /// <summary>
     /// Resolves a relative path inside one canonical folder without creating anything.
-    /// Traversal outside the root is refused.
+    /// Traversal outside the selected folder is refused.
     /// </summary>
     public string ResolveSafePath(string folderName, string relativePath)
     {
         string folder = folderName.Trim().Trim('/');
-        if (folder.Length == 0 || folder.EndsWith('/') || folder.Contains('\\')
+        if (folder is "" or "." or ".." || Path.IsPathRooted(folderName) || folder.Contains(':') || folder.EndsWith('/') || folder.Contains('\\')
             || folder.Split('/', StringSplitOptions.RemoveEmptyEntries).Length != 1)
         {
             throw new InvalidDataException($"文件夹名不受信任：{folderName}");
         }
 
         string normalized = relativePath.Replace('\\', '/').Trim('/');
+        if (Path.IsPathRooted(relativePath) || relativePath.StartsWith('/') || relativePath.StartsWith('\\') || normalized.Contains(':'))
+            throw new InvalidDataException($"文件路径不受信任：{relativePath}");
         string resolved = Path.GetFullPath(Path.Combine(Root, folder, normalized));
-        string rootPrefix = Root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        string folderRoot = Path.GetFullPath(Path.Combine(Root, folder));
+        string rootPrefix = folderRoot.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         StringComparison comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         if (!resolved.StartsWith(rootPrefix, comparison)
-            && !string.Equals(resolved, Root.TrimEnd(Path.DirectorySeparatorChar), comparison))
+            && !string.Equals(resolved, folderRoot, comparison))
         {
             throw new InvalidDataException($"文件路径越界：{relativePath}");
         }
@@ -168,14 +171,11 @@ public sealed class SafeFilePort
         string relativePath,
         CancellationToken cancellationToken = default)
     {
-        string path = _folders.ResolveSafePath(folderName, relativePath);
-        EnsureNoLinkEscape(_folders.Root, path);
-        if (!File.Exists(path))
-        {
-            return null;
-        }
-
-        return await File.ReadAllTextAsync(path, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+        byte[]? bytes = await TryReadBytesAsync(folderName, relativePath, cancellationToken).ConfigureAwait(false);
+        if (bytes is null) return null;
+        using var stream = new MemoryStream(bytes, writable: false);
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Reads one binary file; a missing file reads as null.</summary>
@@ -191,7 +191,10 @@ public sealed class SafeFilePort
             return null;
         }
 
-        return await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+        await using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, FileOptions.Asynchronous);
+        using var output = new MemoryStream();
+        await ArchiveReadBudget.CopyAsync(input, output, input.Length, _maxBytes, new ArchiveReadBudget(_maxBytes), cancellationToken).ConfigureAwait(false);
+        return output.ToArray();
     }
 
     /// <summary>

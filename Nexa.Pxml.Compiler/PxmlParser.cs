@@ -19,12 +19,14 @@ public sealed class PxmlParseException(string message) : InvalidOperationExcepti
 /// </summary>
 public static class PxmlParser
 {
+    private const int MaximumCharacters = 1024 * 1024;
     public static PxmlDocument Parse(string text)
     {
         if (string.IsNullOrEmpty(text))
         {
             throw new PxmlParseException("The PXML document is empty.");
         }
+        if (text.Length > MaximumCharacters) throw new PxmlParseException("The PXML document exceeds the character budget.");
 
         XmlDocument document = new()
         {
@@ -36,7 +38,20 @@ public static class PxmlParser
             {
                 DtdProcessing = DtdProcessing.Prohibit,
                 XmlResolver = null,
+                MaxCharactersInDocument = MaximumCharacters,
             };
+            using (var probeSource = new StringReader(text))
+            using (var probe = XmlReader.Create(probeSource, settings))
+            {
+                int nodes = 0;
+                int elements = 0;
+                while (probe.Read())
+                {
+                    if (++nodes > 65536
+                        || (probe.NodeType == XmlNodeType.Element && (probe.Depth >= 128 || ++elements > 16384 || probe.AttributeCount > 128)))
+                        throw new PxmlParseException("The PXML document exceeds the structural budget.");
+                }
+            }
             using StringReader source = new(text);
             using XmlReader reader = XmlReader.Create(source, settings);
             document.Load(reader);

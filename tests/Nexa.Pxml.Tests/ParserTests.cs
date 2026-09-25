@@ -6,6 +6,17 @@ internal static partial class Program
 
     private static readonly string[] ExpectedChildOrder = ["Text", "Button", "Image"];
 
+    private static void DocumentResourceBudgetsAreEnforcedBeforeRecursion()
+    {
+        string Nested(int count) => string.Concat(Enumerable.Repeat("<Page>", count)) + string.Concat(Enumerable.Repeat("</Page>", count));
+        AssertEqual("Page", PxmlParser.Parse(Nested(128)).Root.Name);
+        AssertEqual("Page", PxmlParser.Parse(Nested(128).Replace("</Page>", " <!-- comment --> </Page>", StringComparison.Ordinal)).Root.Name);
+        AssertThrows<PxmlParseException>(() => PxmlParser.Parse(Nested(20000)));
+        AssertThrows<PxmlParseException>(() => PxmlParser.Parse("<Page>" + string.Concat(Enumerable.Repeat("<Text/>", 16384)) + "</Page>"));
+        AssertThrows<PxmlParseException>(() => PxmlParser.Parse("<Page " + string.Join(' ', Enumerable.Range(0, 129).Select(i => $"A{i}=\"x\"")) + "/>"));
+        AssertThrows<PxmlParseException>(() => PxmlParser.Parse("<Page><!--" + new string('x', 1024 * 1024) + "--></Page>"));
+    }
+
     private static void SimpleDocumentParsesStructurally()
     {
         PxmlDocument document = PxmlParser.Parse($$"""
