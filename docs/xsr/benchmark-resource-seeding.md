@@ -1,7 +1,8 @@
 # Alpha 5 — controlled modpack benchmarks for model seeding
 
-Status: the initial console harness and a single-pack Actions pilot are implemented; no eligible seed
-dataset exists yet. Real-run acceptance and scenario adapters remain incomplete.
+Status: the initial console harness and a single-pack Actions pilot have produced actual process
+measurements; no eligible seed dataset exists yet. World-phase acceptance and scenario adapters
+remain incomplete.
 This extends `online-resource-learning.md`; existing user-session telemetry must not be relabeled or
 silently mixed with benchmark runs. GitHub Actions orchestrates runs, but a hosted VM is not a
 representative physical gaming PC.
@@ -10,6 +11,16 @@ Architecture: `tools/Nexa.Minecraft.Benchmarks` is an intentional console host r
 Services and XSR State. It composes existing installation and launch services; it neither depends on
 Desktop/UI nor introduces a second installer or JVM launcher. Its local artifacts are not telemetry
 and cannot be admitted to training until scenario/provenance validation is implemented.
+
+Verified pilot: [36109456728](https://github.com/PCL-N-Edition/PCL-N/actions/runs/36109456728)
+at commit `d58440ac` completed installation and started the pinned Minecraft client through JNI.
+Its bounded artifacts contain three contiguous windows (180 observations over 90,331 ms), a
+terminal sample and a forced stop. The observed process working-set peak was about 1,482 MiB;
+this is neither required heap nor a recommended memory allocation. The inventory contains 171
+metadata candidates, two unknown files and `complete=false`; candidates are not confirmed loaded
+mods. No menu/world readiness was established, and the settings epoch changes between windows.
+`trainingEligible=false` must remain authoritative. This validates the collection path, not model
+accuracy, world-generation behavior, normal shutdown or a physical gaming-machine baseline.
 
 Run `dotnet build tools/Nexa.Minecraft.Benchmarks -c Release`, then pass archive, SHA-256, Java
 executable, published Nexa.Jvm.Host executable, a nonexistent output directory, heap MiB and duration
