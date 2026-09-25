@@ -172,9 +172,15 @@ jobs:
           path: release-metadata
       - name: Require every package and calculate checksums
         run: python3 eng/release/verify.py artifacts "$PRODUCT_VERSION"
+      - name: Sign and independently verify the complete distribution
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: python3 eng/release/sign.py artifacts "$PRODUCT_VERSION"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: Nexa-complete-distribution
+          name: Complete-Nexa-distribution
+          overwrite: true
           path: |
             artifacts/*
             release-metadata/CHANGELOG.md

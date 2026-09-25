@@ -95,7 +95,11 @@ def downloads_section(version):
                 purpose = ASSET_GUIDE.get((platform, extension), extension)
                 lines.append(f"- `{name}` — {purpose}")
         lines.append("")
-    lines.append("SHA256SUMS 列出全部文件的哈希，导入或 `sha256sum -c` 即可校验完整性。")
+    lines.append("`SHA256SUMS` 列出全部文件的哈希。每个包和清单均附有 `.asc` 签名。")
+    lines.append("验证发布者时，先核对仓库 `GPG-PUBLIC-KEY.asc` 的指纹为 "
+                 "`5701218D69B531E1A7ED35BB6E31F5974A273AEE`，导入公钥后运行 "
+                 "`gpg --verify SHA256SUMS.asc SHA256SUMS`，再运行 `sha256sum -c SHA256SUMS`。")
+    lines.append("OpenPGP 签名不等同于 Windows 代码签名或 macOS 公证。")
     return lines
 
 
