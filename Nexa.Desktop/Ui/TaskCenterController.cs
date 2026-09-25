@@ -440,7 +440,7 @@ internal sealed class TaskCenterController : IDisposable
         {
             TaskCenterEntryState.Finished => FinishedAccent,
             TaskCenterEntryState.Failed => FailedAccent,
-            TaskCenterEntryState.Canceled => CanceledAccent,
+            TaskCenterEntryState.Canceled or TaskCenterEntryState.Paused => CanceledAccent,
             _ => RunningAccent,
         };
         if (_shell.Tree.GetComponent<XsrUiImage>(card.Icon) is { } icon)
@@ -450,6 +450,7 @@ internal sealed class TaskCenterController : IDisposable
                 TaskCenterEntryState.Finished => "lucide/circle-check",
                 TaskCenterEntryState.Failed => "lucide/circle-x",
                 TaskCenterEntryState.Canceled => "lucide/circle-minus",
+                TaskCenterEntryState.Paused => "lucide/pause",
                 _ => "lucide/loader-circle",
             };
         }
@@ -469,7 +470,7 @@ internal sealed class TaskCenterController : IDisposable
         }
         SetText(card.Title, entry.Title);
         SetText(card.Stage, entry.IsTerminal ? entry.Detail : $"{entry.Stage} · {entry.Detail}");
-        SetText(card.Percent, entry.State switch { TaskCenterEntryState.Finished => "已完成", TaskCenterEntryState.Failed => "失败", TaskCenterEntryState.Canceled => "已取消", _ => $"{(int)Math.Round(Math.Clamp(entry.Progress, 0d, 1d) * 100d)}%" });
+        SetText(card.Percent, entry.State switch { TaskCenterEntryState.Finished => "已完成", TaskCenterEntryState.Failed => "失败", TaskCenterEntryState.Canceled => "已取消", TaskCenterEntryState.Paused => "已暂停", _ => $"{(int)Math.Round(Math.Clamp(entry.Progress, 0d, 1d) * 100d)}%" });
         SetVisible(_shell.Tree.Parent(card.Fill), !entry.IsTerminal);
         SetVisible(_shell.Tree.Parent(card.Files), entry.TotalFiles > 0 || entry.SpeedBytesPerSecond > 0 && !entry.IsTerminal);
         SetText(card.Files, entry.TotalFiles > 0

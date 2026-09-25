@@ -50,7 +50,7 @@ public sealed partial class MinecraftInstallService
             return result;
         }
         catch (OperationCanceledException) when (linked.IsCancellationRequested)
-        { task.Canceled(); throw; }
+        { task.Paused(); throw; }
         catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)
         { task.Fail(error.Message); throw; }
     }
@@ -92,7 +92,7 @@ public sealed partial class MinecraftInstallService
             task.Complete(newInstallation ? "已取消安装" : "已回滚修改");
             Installed?.Invoke(root);
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { task.Canceled(); throw; }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { task.Paused(); throw; }
         catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException) { task.Fail(error.Message); throw; }
     }
 }

@@ -118,6 +118,7 @@ internal static partial class Program
         ("install rejects processor loaders before touching disk", InstallRejectsProcessorLoadersBeforeTouchingDisk),
         ("install cancel marks the task canceled", InstallCancelMarksTheTaskCanceled),
         ("task center tracks lifecycle and summary", TaskCenterTracksLifecycleAndSummary),
+        ("task center pause preserves checkpoint without completing steps", TaskCenterPausePreservesCheckpointWithoutCompletingSteps),
         ("prerelease telemetry cannot be disabled", PrereleaseTelemetryCannotBeDisabled),
         ("telemetry lifecycle records only bounded facts", TelemetryLifecycleRecordsOnlyBoundedFacts),
         ("diagnostic revocation preserves necessary facts", DiagnosticRevocationPreservesNecessaryFacts),

@@ -9,6 +9,25 @@ namespace Nexa.Services.Tests;
 // on one built store so the collection/summary cells behave exactly as the renderer sees them.
 internal static partial class Program
 {
+    private static ValueTask TaskCenterPausePreservesCheckpointWithoutCompletingSteps()
+    {
+        TaskCenterService service = NewTaskCenter(out XsrStateStore store);
+        using ITaskCenterTask task = service.Begin(new("pause:1", "安装", ["下载", "发布"]));
+        task.Report("下载", "下载中", 0.4, 2, 5, 100);
+        task.Paused();
+        task.Report("发布", "迟到的进度", 1, 5, 5, 100);
+        task.Complete();
+        var entry = store.ReadCollection<TaskCenterEntry>(store.Resolve(TaskCenterStateContract.EntriesKey)).Items.Single();
+        AssertEqual(TaskCenterEntryState.Paused, entry.State);
+        AssertEqual(0.4, entry.Progress);
+        AssertEqual(0L, entry.SpeedBytesPerSecond);
+        AssertEqual(TaskCenterEntryState.Waiting, entry.Steps![1].State);
+        AssertEqual(0, store.Read<TaskCenterSummary>(store.Resolve(TaskCenterStateContract.SummaryKey)).Value!.ActiveCount);
+        AssertEqual(TaskCenterCancelResult.NotFound, service.RequestCancel("pause:1"));
+        AssertTrue(service.Dismiss("pause:1"));
+        return ValueTask.CompletedTask;
+    }
+
     private sealed class TaskPublicationObserver : IXsrStateObserver
     {
         internal Action? Callback;

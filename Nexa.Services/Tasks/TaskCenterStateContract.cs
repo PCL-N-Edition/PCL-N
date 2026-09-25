@@ -16,7 +16,7 @@ public static class TaskCenterStateContract
     }
 }
 
-public enum TaskCenterEntryState { Waiting, Running, Finished, Failed, Canceled }
+public enum TaskCenterEntryState { Waiting, Running, Finished, Failed, Canceled, Paused }
 
 public sealed record TaskCenterStep(string Name, string Detail, double Progress, TaskCenterEntryState State);
 
@@ -38,7 +38,7 @@ public sealed record TaskCenterEntry(
     bool CanCancel = true,
     IReadOnlyList<TaskCenterStep>? Steps = null)
 {
-    public bool IsTerminal => State is TaskCenterEntryState.Finished or TaskCenterEntryState.Failed or TaskCenterEntryState.Canceled;
+    public bool IsTerminal => State is TaskCenterEntryState.Finished or TaskCenterEntryState.Failed or TaskCenterEntryState.Canceled or TaskCenterEntryState.Paused;
 };
 
 /// <summary>Aggregated facts the bubble and the page header render; Progress is the active-task average.</summary>

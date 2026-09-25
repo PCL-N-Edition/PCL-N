@@ -25,6 +25,7 @@ internal static class AvaloniaUiIcons
         ["lucide/loader-circle"] = ["M12 2a10 10 0 1 0 10 10"],
         ["lucide/circle-check"] = ["M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0", "m8 12 3 3 5-6"],
         ["lucide/circle-minus"] = ["M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0", "M8 12h8"],
+        ["lucide/pause"] = ["M6 4h4v16H6z", "M14 4h4v16h-4z"],
         ["lucide/inbox"] = ["M4 4h16l2 10v6H2v-6Z", "M2 14h6l2 3h4l2-3h6"],
         ["pcl/folder"] = ["M3 7V5h6l2 2h10v13H3Z"],
         ["pcl/pencil"] = ["m4 16-1 5 5-1L21 7l-4-4Z", "m14 6 4 4"],

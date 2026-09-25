@@ -225,7 +225,11 @@ public sealed class TaskCenterService
         CommitTerminal(registration);
     }
 
-    internal void MarkCanceled(Registration registration)
+    internal void MarkCanceled(Registration registration) => MarkStopped(registration, TaskCenterEntryState.Canceled, "已取消");
+
+    internal void MarkPaused(Registration registration) => MarkStopped(registration, TaskCenterEntryState.Paused, "已暂停，下次启动继续");
+
+    private void MarkStopped(Registration registration, TaskCenterEntryState state, string detail)
     {
         TaskCenterEntry updated;
         lock (_gate)
@@ -235,7 +239,7 @@ public sealed class TaskCenterService
                 return;
             }
 
-            updated = Terminal(registration.Entry, TaskCenterEntryState.Canceled, "已取消", null);
+            updated = Terminal(registration.Entry, state, detail, null);
             registration.Entry = updated;
             registration.Released = true;
             Enqueue(registration);
@@ -274,7 +278,7 @@ public sealed class TaskCenterService
             // Finished reads as fully complete; canceled keeps the progress it reached.
             Progress = state == TaskCenterEntryState.Finished ? 1d : entry.Progress,
             SpeedBytesPerSecond = 0,
-            Steps = entry.Steps is { } steps ? TaskStagePlanner.Advance(steps, "完成", detail, 1d) : null,
+            Steps = state == TaskCenterEntryState.Paused ? entry.Steps : entry.Steps is { } steps ? TaskStagePlanner.Advance(steps, "完成", detail, 1d) : null,
         };
 
     /// <summary>
@@ -424,6 +428,9 @@ public interface ITaskCenterTask : IDisposable
     /// <summary>Marks the task canceled after the cancellation token fired.</summary>
     void Canceled();
 
+    /// <summary>Worker has stopped with durable progress retained for a later run.</summary>
+    void Paused();
+
     void Fail(string message);
 }
 
@@ -440,6 +447,8 @@ internal sealed class TaskHandle(TaskCenterService service, TaskCenterService.Re
     public void Complete(string detail = "完成") => service.Complete(registration, detail);
 
     public void Canceled() => service.MarkCanceled(registration);
+
+    public void Paused() => service.MarkPaused(registration);
 
     public void Fail(string message) => service.Fail(registration, message);
 

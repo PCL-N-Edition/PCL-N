@@ -95,6 +95,7 @@ public sealed partial class LauncherTelemetrySession : IDisposable, IXsrStateObs
                     }
                     if (ended || !task.IsTerminal) continue;
                     _tasks[task.TaskId] = true;
+                    if (task.State == TaskCenterEntryState.Paused) continue; // A retained job has no success/failure outcome yet.
                     Record("task.finished", task.State switch
                     {
                         TaskCenterEntryState.Finished => "ok",
