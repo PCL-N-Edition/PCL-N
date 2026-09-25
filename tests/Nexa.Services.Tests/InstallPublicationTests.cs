@@ -54,22 +54,22 @@ internal static partial class Program
                 {
                     using var fixture = new InstallFixture(new FakeMetadata());
                     File.WriteAllText(mod, "user-change");
-                    try { await fixture.Install.RollbackModificationAsync(root, preparedTaskId(stage)); throw new InvalidOperationException("Rollback overwrote external change."); } catch (IOException) { }
+                    try { await fixture.Install.RollbackInstallationAsync(root, preparedTaskId(stage)); throw new InvalidOperationException("Rollback overwrote external change."); } catch (IOException) { }
                     AssertEqual(InstallTaskStatus.RollbackRequested, await InstallTaskJournal.ReadStatusAsync(stage, taskPlan, default));
-                    try { await fixture.Install.ResumeModificationAsync(root, preparedTaskId(stage)); throw new InvalidOperationException("Rollback intent ignored."); } catch (InvalidOperationException error) when (error.Message != "Rollback intent ignored.") { }
+                    try { await fixture.Install.ResumeInstallationAsync(root, preparedTaskId(stage)); throw new InvalidOperationException("Rollback intent ignored."); } catch (InvalidOperationException error) when (error.Message != "Rollback intent ignored.") { }
                     AssertEqual("user-change", File.ReadAllText(mod));
                     File.WriteAllText(mod, "replacement-mod");
-                    await fixture.Install.RollbackModificationAsync(root, preparedTaskId(stage));
-                    await fixture.Install.RollbackModificationAsync(root, preparedTaskId(stage));
+                    await fixture.Install.RollbackInstallationAsync(root, preparedTaskId(stage));
+                    await fixture.Install.RollbackInstallationAsync(root, preparedTaskId(stage));
                     AssertEqual(InstallTaskStatus.RolledBack, await InstallTaskJournal.ReadStatusAsync(stage, taskPlan, default));
                     AssertEqual("original-mod", File.ReadAllText(mod)); AssertEqual("original-manifest", File.ReadAllText(manifest));
                 }
                 else
                 {
                     using var fixture = new InstallFixture(new FakeMetadata());
-                    await fixture.Install.ResumeModificationAsync(root, preparedTaskId(stage));
+                    await fixture.Install.ResumeInstallationAsync(root, preparedTaskId(stage));
                     AssertEqual(InstallTaskStatus.Completed, await InstallTaskJournal.ReadStatusAsync(stage, taskPlan, default));
-                    await fixture.Install.ResumeModificationAsync(root, preparedTaskId(stage));
+                    await fixture.Install.ResumeInstallationAsync(root, preparedTaskId(stage));
                     AssertEqual("replacement-mod", File.ReadAllText(mod)); AssertEqual("replacement-manifest", File.ReadAllText(manifest));
                     File.WriteAllText(mod, "changed-after-commit");
                     try { await reopened.ApplyAsync(default); throw new InvalidOperationException("Committed external change ignored."); } catch (IOException) { }

@@ -6,10 +6,10 @@ namespace Nexa.Services.Minecraft.Install;
 public sealed partial class MinecraftInstallService
 {
     /// <summary>Internal runner; discovery and user pause/rollback orchestration are separate.</summary>
-    internal async Task<MinecraftInstallResult> ResumeModificationAsync(string root, Guid taskId, CancellationToken token = default)
+    internal async Task<MinecraftInstallResult> ResumeInstallationAsync(string root, Guid taskId, bool newInstallation = false, CancellationToken token = default)
     {
         root = Path.GetFullPath(root);
-        string stage = ForgeInstallService.Contained(root, ".nexa-modify/" + taskId.ToString("N"));
+        string stage = ForgeInstallService.Contained(root, (newInstallation ? ".nexa-install-jobs/" : ".nexa-modify/") + taskId.ToString("N"));
         var saved = await InstallTaskJournal.ReadAsync(root, stage, token).ConfigureAwait(false);
         if (saved.Command.NewInstanceName is { } renamed && renamed != saved.Command.InstanceName)
             throw new InvalidDataException("包含改名的安装任务尚不能自动恢复，已保留原记录。");
@@ -24,7 +24,7 @@ public sealed partial class MinecraftInstallService
             throw new InvalidOperationException("此任务已选择回滚，不能继续安装。");
         // Generic cancel would leave a resumable task and silently restart it next time.
         // Expose user controls only through the forthcoming explicit pause/rollback flow.
-        using var task = _tasks.Begin(new("install-recovery:" + taskId.ToString("N"), "继续修改 " + saved.Command.InstanceName, StagePlan, CanCancel: false));
+        using var task = _tasks.Begin(new("install-recovery:" + taskId.ToString("N"), (newInstallation ? "继续安装 " : "继续修改 ") + saved.Command.InstanceName, StagePlan, CanCancel: false));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, task.CancellationToken);
         try
         {
@@ -33,7 +33,8 @@ public sealed partial class MinecraftInstallService
             if (!Directory.Exists(publication))
             {
                 if (status == InstallTaskStatus.Completed) throw new InvalidDataException("已完成任务缺少发布记录，已保留原目录。");
-                result = await ReinstallAsync(saved.Command, task, linked.Token, stage).ConfigureAwait(false);
+                result = newInstallation ? await InstallNewAsync(saved.Command, task, linked.Token, stage).ConfigureAwait(false)
+                    : await ReinstallAsync(saved.Command, task, linked.Token, stage).ConfigureAwait(false);
             }
             else
             {
@@ -44,7 +45,7 @@ public sealed partial class MinecraftInstallService
                 result = new(saved.Command.InstanceName!, Path.Combine(root, "versions", saved.Command.InstanceName!));
             }
             await InstallTaskJournal.WriteStatusAsync(stage, saved, InstallTaskStatus.Completed, CancellationToken.None).ConfigureAwait(false);
-            task.Complete("已修改 " + saved.Command.InstanceName);
+            task.Complete((newInstallation ? "已安装 " : "已修改 ") + saved.Command.InstanceName);
             Installed?.Invoke(root);
             return result;
         }
@@ -54,10 +55,10 @@ public sealed partial class MinecraftInstallService
         { task.Fail(error.Message); throw; }
     }
 
-    internal async Task RollbackModificationAsync(string root, Guid taskId, CancellationToken token = default)
+    internal async Task RollbackInstallationAsync(string root, Guid taskId, bool newInstallation = false, CancellationToken token = default)
     {
         root = Path.GetFullPath(root);
-        string stage = ForgeInstallService.Contained(root, ".nexa-modify/" + taskId.ToString("N"));
+        string stage = ForgeInstallService.Contained(root, (newInstallation ? ".nexa-install-jobs/" : ".nexa-modify/") + taskId.ToString("N"));
         var saved = await InstallTaskJournal.ReadAsync(root, stage, token).ConfigureAwait(false);
         if (saved.Command.NewInstanceName is { } renamed && renamed != saved.Command.InstanceName)
             throw new InvalidDataException("包含改名的安装任务尚不能自动回滚，已保留原记录。");
@@ -69,7 +70,7 @@ public sealed partial class MinecraftInstallService
         var status = await InstallTaskJournal.ReadStatusAsync(stage, saved, token).ConfigureAwait(false);
         if (status == InstallTaskStatus.RolledBack) return;
         if (status == InstallTaskStatus.Completed) throw new InvalidOperationException("安装已完成，不能作为未完成任务回滚。");
-        using var task = _tasks.Begin(new("install-recovery:" + taskId.ToString("N"), "回滚修改 " + saved.Command.InstanceName, StagePlan, CanCancel: false));
+        using var task = _tasks.Begin(new("install-recovery:" + taskId.ToString("N"), (newInstallation ? "取消安装 " : "回滚修改 ") + saved.Command.InstanceName, StagePlan, CanCancel: false));
         try
         {
             string publication = Path.Combine(stage, ".publication"); RecoveryBlobStore.CheckLinks(publication);
@@ -88,7 +89,7 @@ public sealed partial class MinecraftInstallService
             await InstallTaskJournal.WriteStatusAsync(stage, saved, InstallTaskStatus.RollbackRequested, token).ConfigureAwait(false);
             if (journal is not null) await journal.RollbackAsync(token).ConfigureAwait(false);
             await InstallTaskJournal.WriteStatusAsync(stage, saved, InstallTaskStatus.RolledBack, CancellationToken.None).ConfigureAwait(false);
-            task.Complete("已回滚修改");
+            task.Complete(newInstallation ? "已取消安装" : "已回滚修改");
             Installed?.Invoke(root);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { task.Canceled(); throw; }

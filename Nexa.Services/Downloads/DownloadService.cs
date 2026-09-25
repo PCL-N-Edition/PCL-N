@@ -168,7 +168,7 @@ public sealed class DownloadService
             {
                 _log?.Debug(LogModuleName, $"Source attempt started source={DescribeSource(source)} destination={destinationPath} attempt={errors.Count + 1}");
                 report(new DownloadProgress(DownloadStage.Connecting, source, 0, -1, 0));
-                if (request.MaxParallelSegments > 1)
+                if (request.AllowResume && request.MaxParallelSegments > 1)
                 {
                     stage = "segmented_transfer";
                     DownloadTransferResult? segmented = await TryDownloadSegmentedAsync(
@@ -188,7 +188,7 @@ public sealed class DownloadService
                 stage = "open_writer";
                 writer = request.WriterFactory(destinationPath)
                     ?? throw new InvalidOperationException($"No download writer was created for {destinationPath}.");
-                requestedOffset = Math.Max(0, writer.ExistingLength);
+                requestedOffset = request.AllowResume ? Math.Max(0, writer.ExistingLength) : 0;
                 _log?.Debug(LogModuleName, $"Resume check destination={destinationPath} existing_bytes={requestedOffset}");
                 stage = "connect";
                 connection = request.ConnectionFactory(source)
@@ -196,6 +196,8 @@ public sealed class DownloadService
                 DownloadConnectionInfo connectionInfo = await connection
                     .StartAsync(requestedOffset, cancellationToken)
                     .ConfigureAwait(false);
+                if (!request.AllowResume && connectionInfo.BeginOffset != 0)
+                    throw new InvalidDataException("A fresh download requires a response starting at zero.");
 
                 long startOffset = connectionInfo.BeginOffset == requestedOffset ? requestedOffset : 0;
                 _log?.Debug(LogModuleName, $"Source connected source={DescribeSource(source)} begin_offset={connectionInfo.BeginOffset} length={connectionInfo.Length}");
@@ -226,6 +228,9 @@ public sealed class DownloadService
                             break;
                         }
 
+                        if (!request.AllowResume && connectionInfo.Length >= 0 && read > connectionInfo.Length - sessionRead)
+                            throw new InvalidDataException("Download response exceeds its declared length.");
+
                         await writeStream
                             .WriteAsync(buffer.AsMemory(0, read), cancellationToken)
                             .ConfigureAwait(false);
@@ -239,6 +244,8 @@ public sealed class DownloadService
                             CalculateSpeed(sessionRead, readStartedAt)));
                     }
 
+                    if (!request.AllowResume && connectionInfo.Length >= 0 && sessionRead != connectionInfo.Length)
+                        throw new EndOfStreamException("Download response ended before its declared length.");
                     stage = "flush";
                     await writeStream.FlushAsync(cancellationToken).ConfigureAwait(false);
                     stage = "commit";

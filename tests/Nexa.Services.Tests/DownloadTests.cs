@@ -9,6 +9,27 @@ namespace Nexa.Services.Tests;
 // ports keep every scenario deterministic without network.
 internal static partial class Program
 {
+    private static async ValueTask DownloadsWithoutIdentityRestartEverySource()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            string destination = Path.Combine(directory, "file.bin"); File.WriteAllBytes(destination + ".PCLDownloading", [9, 9, 9]);
+            var first = new FakeConnection(2, [1]); var second = new FakeConnection(2, [2, 3]);
+            var result = await CreateDownloadService().DownloadAsync(new()
+            {
+                Sources = ["first", "second"],
+                DestinationPath = destination,
+                AllowResume = false,
+                MaxParallelSegments = 4,
+                ConnectionFactory = source => source == "first" ? first : second
+            });
+            AssertTrue(result.Success); AssertEqual(0L, first.StartOffset); AssertEqual(0L, second.StartOffset);
+            AssertTrue(File.ReadAllBytes(destination) is [2, 3]);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
     private sealed class FakeConnection : IDownloadConnection
     {
         private readonly byte[][] _chunks;

@@ -10,6 +10,8 @@ internal static partial class Program
         ("persistent install metadata serializes publication and honors cancellation", PersistentInstallMetadataSerializesPublicationAndHonorsCancellation),
         ("install task terminal states do not resurrect", InstallTaskTerminalStatesDoNotResurrect),
         ("install task journal preserves choices and rejects invalid records", InstallTaskJournalPreservesChoicesAndRejectsInvalidRecords),
+        ("downloads without identity restart every source", DownloadsWithoutIdentityRestartEverySource),
+        ("new installation recovers after killed downloader without repeating verified files", NewInstallationRecoversAfterKilledDownloaderWithoutRepeatingVerifiedFile),
         ("install recovery discovery isolates invalid tasks and honors disposition", InstallRecoveryDiscoveryIsolatesInvalidTasksAndHonorsDisposition),
         ("install recovery repairs committed terminal before rejecting rollback", InstallRecoveryRepairsCommittedTerminalBeforeRejectingRollback),
         ("install recovery continues preparation and rejects concurrent execution", InstallRecoveryContinuesPreparationAndRejectsConcurrentExecution),
@@ -406,6 +408,7 @@ internal static partial class Program
 
     private static async Task<int> Main(string[] args)
     {
+        if (args is ["--interrupted-new-install", var installRoot]) return await RunInterruptedNewInstallChild(installRoot);
         if (args is ["--install-publication-child", var root, var stage]) return await RunInstallPublicationChild(root, stage);
         if (args is ["--jvm-host"]) return await ReceiveJvmHostFixture();
         if (args.Contains("--live-install-catalog")) { await LiveInstallCatalogSmoke(); return 0; }

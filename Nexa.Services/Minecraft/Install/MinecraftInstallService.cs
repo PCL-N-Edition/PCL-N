@@ -135,7 +135,7 @@ public sealed partial class MinecraftInstallService : IDisposable
             if (command.EditFingerprint is not null && _hostStore is not null)
                 MinecraftInstanceRenamer.EnsureIdle(command.RootDirectory, _hostStore, linked.Token);
             MinecraftInstallResult result = command.EditFingerprint is null
-                ? await RunAsync(command, task, linked.Token).ConfigureAwait(false)
+                ? await InstallNewAsync(command, task, linked.Token).ConfigureAwait(false)
                 : await ReinstallAsync(command, task, linked.Token).ConfigureAwait(false);
             if (renaming)
             {
@@ -168,24 +168,14 @@ public sealed partial class MinecraftInstallService : IDisposable
         MinecraftInstallCommand command,
         ITaskCenterTask task,
         CancellationToken token,
-        IMinecraftInstallMetadataSource? metadataSource = null)
+        IMinecraftInstallMetadataSource? metadataSource = null,
+        bool deferCompletion = false)
     {
         IMinecraftInstallMetadataSource metadata = metadataSource ?? _metadata;
-        bool processorLoader = command.Loader is InstallLoader.Forge or InstallLoader.NeoForge or InstallLoader.Cleanroom or InstallLoader.OptiFine;
-        if (command.Loader is not null && !IsProfileJsonLoader(command.Loader.Value) && !processorLoader)
-        {
-            throw new InvalidOperationException(
-                $"{LoaderDisplayName(command.Loader.Value)} 不能作为主加载器安装，请选择对应的基础加载器。");
-        }
-
-        if (command.Loader is not null && string.IsNullOrWhiteSpace(command.LoaderBuild))
-            throw new InvalidOperationException("请选择加载器版本。");
+        bool processorLoader = ValidatePrimaryLoader(command);
         string game = command.GameVersion;
         string gameName = SafeName(game);
-        string instanceId = command.Loader is { } loader && command.LoaderBuild is { Length: > 0 } loaderBuild
-            ? SafeName($"{game}-{loader.ToString().ToLowerInvariant()}{loaderBuild}")
-            : gameName;
-        if (!string.IsNullOrWhiteSpace(command.InstanceName)) instanceId = SafeName(command.InstanceName);
+        string instanceId = InstallInstanceId(command);
         if (command.Loader is not null && instanceId == gameName && !command.PreparingEdit)
             throw new InvalidOperationException("加载器实例名称不能与原版版本目录相同。");
         string root = Path.GetFullPath(command.RootDirectory);
@@ -376,6 +366,13 @@ public sealed partial class MinecraftInstallService : IDisposable
         {
             (string Stage, PlannedFile File) candidate = planned.First(
                 pair => MinecraftLibraryService.PathComparer.Equals(pair.File.Destination, destination));
+            if (metadata is PersistentInstallMetadataSource && string.IsNullOrEmpty(candidate.File.Expected.Sha1))
+            {
+                // A prior process may have preallocated or partially filled a size-only file.
+                // Until a completed-artifact receipt exists, restart rather than certify it by size.
+                allFiles.Add(candidate);
+                continue;
+            }
             if (command.ReuseRoot is { } reuseRoot && !File.Exists(candidate.File.Destination))
             {
                 string original = ForgeInstallService.Contained(reuseRoot, Path.GetRelativePath(root, candidate.File.Destination));
@@ -398,7 +395,8 @@ public sealed partial class MinecraftInstallService : IDisposable
             PlannedFile file = pair.File;
             {
                 token.ThrowIfCancellationRequested();
-                if (await MinecraftFileVerifier.VerifyAsync(file.Expected, token).ConfigureAwait(false))
+                if ((metadata is not PersistentInstallMetadataSource || !string.IsNullOrEmpty(file.Expected.Sha1))
+                    && await MinecraftFileVerifier.VerifyAsync(file.Expected, token).ConfigureAwait(false))
                 {
                     doneFiles++;
                     continue;
@@ -408,6 +406,7 @@ public sealed partial class MinecraftInstallService : IDisposable
                 string stageLabel = allFiles.Count == 0 ? stage : $"{stage} · {Path.GetFileName(file.Destination)}";
                 DownloadRequest request = new()
                 {
+                    AllowResume = !string.IsNullOrEmpty(file.Expected.Sha1),
                     Sources = file.Sources,
                     DestinationPath = file.Destination,
                     ConnectionFactory = _connectionFactory is { } factory
@@ -514,7 +513,7 @@ public sealed partial class MinecraftInstallService : IDisposable
                 loaderJson.ToJsonString(JsonOptions), token).ConfigureAwait(false);
         }
 
-        if (!command.PreparingEdit)
+        if (!command.PreparingEdit && !deferCompletion)
         {
             task.Complete($"已安装 {instanceId}");
             Installed?.Invoke(root);

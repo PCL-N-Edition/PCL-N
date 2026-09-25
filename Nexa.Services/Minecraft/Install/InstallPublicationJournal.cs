@@ -192,6 +192,7 @@ internal sealed class InstallPublicationJournal
     {
         if (root != Path.GetFullPath(root) || stage != Path.GetFullPath(stage) || !MinecraftVersionPaths.IsSafeReference(instance)
             || !MinecraftLibraryService.PathComparer.Equals(Directory.GetParent(stage)?.FullName, Path.Combine(root, ".nexa-modify"))
+                && !MinecraftLibraryService.PathComparer.Equals(Directory.GetParent(stage)?.FullName, Path.Combine(root, ".nexa-install-jobs"))
             || !Guid.TryParseExact(Path.GetFileName(stage), "N", out _)) throw new InvalidDataException("安装事务目录无效。");
         RecoveryBlobStore.CheckLinks(root); RecoveryBlobStore.CheckLinks(stage);
     }

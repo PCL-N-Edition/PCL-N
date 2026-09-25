@@ -26,6 +26,7 @@ public sealed partial class MinecraftInstallService
             task.Report(StagePlan[3], "正在更新 " + LoaderDisplayName(addon.Kind), 0.5, 0, downloads.Count, 0);
             var result = await _downloads.DownloadAsync(new DownloadRequest
             {
+                AllowResume = !string.IsNullOrWhiteSpace(first.Sha1),
                 Sources = downloads.Where(file => string.IsNullOrWhiteSpace(first.Sha1) || file.Sha1 == first.Sha1).Select(file => file.Url.ToString()).ToArray(),
                 DestinationPath = path,
                 ConnectionFactory = url => _connectionFactory?.Invoke(url) ?? new HttpConnection(_http, url),

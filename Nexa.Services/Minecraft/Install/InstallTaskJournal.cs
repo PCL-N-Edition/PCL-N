@@ -90,6 +90,7 @@ internal static class InstallTaskJournal
         if (!Path.IsPathFullyQualified(root) || root != Path.GetFullPath(root)
             || !Path.IsPathFullyQualified(stage) || stage != Path.GetFullPath(stage)
             || !MinecraftLibraryService.PathComparer.Equals(Directory.GetParent(stage)?.FullName, Path.Combine(root, ".nexa-modify"))
+                && !MinecraftLibraryService.PathComparer.Equals(Directory.GetParent(stage)?.FullName, Path.Combine(root, ".nexa-install-jobs"))
             || !Guid.TryParseExact(Path.GetFileName(stage), "N", out _)) throw new InvalidDataException("安装任务目录无效。");
         RecoveryBlobStore.CheckLinks(root); RecoveryBlobStore.CheckLinks(stage);
     }
@@ -103,7 +104,8 @@ internal static class InstallTaskJournal
             || !MinecraftVersionPaths.IsSafeReference(command.GameVersion)
             || !MinecraftVersionPaths.IsSafeReference(command.InstanceName)
             || command.NewInstanceName is { } name && !MinecraftVersionPaths.IsSafeReference(name)
-            || command.EditFingerprint is not { Length: 64 } fingerprint || !fingerprint.All(char.IsAsciiHexDigit)
+            || command.EditFingerprint is { } fingerprint && (fingerprint.Length != 64 || !fingerprint.All(char.IsAsciiHexDigit))
+            || Directory.GetParent(stage)!.Name != (command.EditFingerprint is null ? ".nexa-install-jobs" : ".nexa-modify")
             || command.InheritVanilla is null || command.PreparingEdit || command.ReuseRoot is not null || command.ModsRelativeDirectory is not null
             || command.Loader is { } loader && !Enum.IsDefined(loader)
             || command.Loader is not null && !ValidText(command.LoaderBuild, 256)

@@ -25,32 +25,35 @@ public sealed partial class MinecraftInstallService
             {
                 if (!Path.IsPathFullyQualified(requested)) throw new ArgumentException("安装恢复需要绝对目录路径。");
                 string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(requested));
-                string directory = Path.Combine(root, ".nexa-modify"); RecoveryBlobStore.CheckLinks(directory);
-                if (!Directory.Exists(directory)) continue;
-                foreach (string stage in Directory.EnumerateDirectories(directory))
+                foreach (bool newInstallation in new[] { false, true })
                 {
-                    token.ThrowIfCancellationRequested();
-                    if (++visited > 256)
+                    string directory = Path.Combine(root, newInstallation ? ".nexa-install-jobs" : ".nexa-modify"); RecoveryBlobStore.CheckLinks(directory);
+                    if (!Directory.Exists(directory)) continue;
+                    foreach (string stage in Directory.EnumerateDirectories(directory))
                     {
-                        Fail("待检查的安装目录过多，已保留剩余任务。");
-                        return XsrResult.Failure(XsrRuntimeErrors.HandlerFaulted());
+                        token.ThrowIfCancellationRequested();
+                        if (++visited > 256)
+                        {
+                            Fail("待检查的安装目录过多，已保留剩余任务。");
+                            return XsrResult.Failure(XsrRuntimeErrors.HandlerFaulted());
+                        }
+                        if (!Guid.TryParseExact(Path.GetFileName(stage), "N", out Guid id)) continue;
+                        try
+                        {
+                            var saved = await InstallTaskJournal.ReadAsync(root, stage, token).ConfigureAwait(false);
+                            var status = await InstallTaskJournal.ReadStatusAsync(stage, saved, token).ConfigureAwait(false);
+                            if (status is InstallTaskStatus.Completed or InstallTaskStatus.RolledBack) continue;
+                            if (saved.Command.Loader is InstallLoader.Forge or InstallLoader.NeoForge or InstallLoader.Cleanroom or InstallLoader.OptiFine
+                                && !Directory.Exists(Path.Combine(stage, ".publication")))
+                                throw new InvalidOperationException("此加载器的准备阶段暂不支持自动恢复，已保留任务。");
+                            if (status == InstallTaskStatus.RollbackRequested)
+                                await RollbackInstallationAsync(root, id, newInstallation, token).ConfigureAwait(false);
+                            else
+                                await ResumeInstallationAsync(root, id, newInstallation, token).ConfigureAwait(false);
+                        }
+                        catch (Exception error) when (error is not OperationCanceledException and not OutOfMemoryException and not AccessViolationException)
+                        { Fail("任务 " + id.ToString("N") + " 未能恢复：" + error.Message); }
                     }
-                    if (!Guid.TryParseExact(Path.GetFileName(stage), "N", out Guid id)) continue;
-                    try
-                    {
-                        var saved = await InstallTaskJournal.ReadAsync(root, stage, token).ConfigureAwait(false);
-                        var status = await InstallTaskJournal.ReadStatusAsync(stage, saved, token).ConfigureAwait(false);
-                        if (status is InstallTaskStatus.Completed or InstallTaskStatus.RolledBack) continue;
-                        if (saved.Command.Loader is InstallLoader.Forge or InstallLoader.NeoForge or InstallLoader.Cleanroom or InstallLoader.OptiFine
-                            && !Directory.Exists(Path.Combine(stage, ".publication")))
-                            throw new InvalidOperationException("此加载器的准备阶段暂不支持自动恢复，已保留任务。");
-                        if (status == InstallTaskStatus.RollbackRequested)
-                            await RollbackModificationAsync(root, id, token).ConfigureAwait(false);
-                        else
-                            await ResumeModificationAsync(root, id, token).ConfigureAwait(false);
-                    }
-                    catch (Exception error) when (error is not OperationCanceledException and not OutOfMemoryException and not AccessViolationException)
-                    { Fail("任务 " + id.ToString("N") + " 未能恢复：" + error.Message); }
                 }
             }
             catch (Exception error) when (error is not OperationCanceledException and not OutOfMemoryException and not AccessViolationException)
