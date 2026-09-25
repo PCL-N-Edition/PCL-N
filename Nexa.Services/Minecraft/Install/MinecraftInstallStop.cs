@@ -34,7 +34,6 @@ public sealed partial class MinecraftInstallService
         }
         public TaskCompletionSource Ready { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public required bool CanPause { get; init; }
         public string? Stage { get; set; }
         public bool Completed { get; set; }
     }
@@ -45,10 +44,7 @@ public sealed partial class MinecraftInstallService
         {
             if (_stopping) throw new OperationCanceledException("正在停止安装任务。");
             _recoveryRoots.Add(Path.TrimEndingDirectorySeparator(Path.GetFullPath(command.RootDirectory)));
-            var execution = new InstallExecution
-            {
-                CanPause = command.NewInstanceName is null || command.NewInstanceName == command.InstanceName
-            };
+            var execution = new InstallExecution();
             _executions.Add(execution);
             return execution;
         }
@@ -79,8 +75,6 @@ public sealed partial class MinecraftInstallService
                 return XsrResult.Failure(MinecraftErrors.InvalidRequest("安装任务正在停止或等待撤回，请稍后重试取消／回滚。"));
             executions = _executions.ToArray();
             roots = _recoveryRoots.ToArray();
-            if (command.Pause && executions.Any(item => !item.CanPause))
-                return XsrResult.Failure(MinecraftErrors.InvalidRequest("当前改名任务暂不支持暂停，请等待完成或取消安装。"));
             _stopping = true;
             _stopInProgress = true;
             _pauseForExit = command.Pause;

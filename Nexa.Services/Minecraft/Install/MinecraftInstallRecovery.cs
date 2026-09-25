@@ -11,8 +11,7 @@ public sealed partial class MinecraftInstallService
         root = Path.GetFullPath(root);
         string stage = ForgeInstallService.Contained(root, (newInstallation ? ".nexa-install-jobs/" : ".nexa-modify/") + taskId.ToString("N"));
         var saved = await InstallTaskJournal.ReadAsync(root, stage, token).ConfigureAwait(false);
-        if (saved.Command.NewInstanceName is { } renamed && renamed != saved.Command.InstanceName)
-            throw new InvalidDataException("包含改名的安装任务尚不能自动恢复，已保留原记录。");
+        bool renaming = saved.Command.NewInstanceName is { } renamed && renamed != saved.Command.InstanceName;
         var execution = RegisterExecution(saved.Command);
         ReadyExecution(execution, stage);
         try
@@ -36,7 +35,15 @@ public sealed partial class MinecraftInstallService
             {
                 string publication = Path.Combine(stage, ".publication"); RecoveryBlobStore.CheckLinks(publication);
                 MinecraftInstallResult result;
-                if (!Directory.Exists(publication))
+                string renameDirectory = Path.Combine(stage, ".rename");
+                if (renaming && File.Exists(Path.Combine(renameDirectory, "plan.json")))
+                {
+                    if (_settingsPolicy is null) throw new InvalidOperationException("恢复改名需要实例设置服务。");
+                    var rename = await InstanceRenameJournal.OpenAsync(root, renameDirectory, linked.Token).ConfigureAwait(false);
+                    await rename.ApplyAsync(_settingsPolicy, linked.Token).ConfigureAwait(false);
+                    result = new(saved.Command.NewInstanceName!, rename.Destination);
+                }
+                else if (!Directory.Exists(publication))
                 {
                     if (status == InstallTaskStatus.Completed) throw new InvalidDataException("已完成任务缺少发布记录，已保留原目录。");
                     result = newInstallation ? await InstallNewAsync(saved.Command, task, linked.Token, stage).ConfigureAwait(false)
@@ -50,7 +57,21 @@ public sealed partial class MinecraftInstallService
                     await journal.ApplyAsync(linked.Token, (done, total) => task.Report(StagePlan[4], "正在恢复安装文件", (double)done / Math.Max(1, total), done, total, 0)).ConfigureAwait(false);
                     result = new(saved.Command.InstanceName!, Path.Combine(root, "versions", saved.Command.InstanceName!));
                 }
+                if (renaming && result.InstanceId != saved.Command.NewInstanceName)
+                {
+                    if (_settingsPolicy is null) throw new InvalidOperationException("恢复改名需要实例设置服务。");
+                    var current = await MinecraftInstallEditService.ReadAsync(new(root, result.InstanceId), linked.Token).ConfigureAwait(false);
+                    await MinecraftInstanceRenamer.RenameAsync(root, result.InstanceId, saved.Command.NewInstanceName!, current.GameVersion,
+                        current.Fingerprint, _settingsPolicy, _hostStore, linked.Token, renameDirectory, acquireOperation: false).ConfigureAwait(false);
+                    result = new(saved.Command.NewInstanceName!, Path.Combine(root, "versions", saved.Command.NewInstanceName!));
+                }
                 await InstallTaskJournal.WriteStatusAsync(stage, saved, InstallTaskStatus.Completed, CancellationToken.None).ConfigureAwait(false);
+                if (renaming)
+                {
+                    var rename = await InstanceRenameJournal.OpenAsync(root, renameDirectory, CancellationToken.None).ConfigureAwait(false);
+                    await rename.RemoveCommittedMarkerAsync(CancellationToken.None).ConfigureAwait(false);
+                    Renamed?.Invoke(root, saved.Command.InstanceName!, result.InstanceId);
+                }
                 task.Complete((newInstallation ? "已安装 " : "已修改 ") + saved.Command.InstanceName);
                 Installed?.Invoke(root);
                 execution.Completed = true;
@@ -69,8 +90,7 @@ public sealed partial class MinecraftInstallService
         root = Path.GetFullPath(root);
         string stage = ForgeInstallService.Contained(root, (newInstallation ? ".nexa-install-jobs/" : ".nexa-modify/") + taskId.ToString("N"));
         var saved = await InstallTaskJournal.ReadAsync(root, stage, token).ConfigureAwait(false);
-        if (saved.Command.NewInstanceName is { } renamed && renamed != saved.Command.InstanceName)
-            throw new InvalidDataException("包含改名的安装任务尚不能自动回滚，已保留原记录。");
+        bool renaming = saved.Command.NewInstanceName is { } renamed && renamed != saved.Command.InstanceName;
         using var operation = await InstanceRecoveryOperationGate.EnterRestoreAsync(root, token).ConfigureAwait(false);
         if (_hostStore is null) throw new InvalidOperationException("回滚安装需要检查活动游戏进程。");
         MinecraftInstanceRenamer.EnsureIdle(root, _hostStore, token);
@@ -82,13 +102,24 @@ public sealed partial class MinecraftInstallService
         using var task = _tasks.Begin(new("install-recovery:" + taskId.ToString("N"), (newInstallation ? "取消安装 " : "回滚修改 ") + saved.Command.InstanceName, StagePlan, CanCancel: false));
         try
         {
+            if (renaming)
+            {
+                await InstallTaskJournal.WriteStatusAsync(stage, saved, InstallTaskStatus.RollbackRequested, token).ConfigureAwait(false);
+                string renameDirectory = Path.Combine(stage, ".rename");
+                if (File.Exists(Path.Combine(renameDirectory, "plan.json")))
+                {
+                    if (_settingsPolicy is null) throw new InvalidOperationException("回滚改名需要实例设置服务。");
+                    var rename = await InstanceRenameJournal.OpenAsync(root, renameDirectory, token).ConfigureAwait(false);
+                    await rename.RollbackAsync(_settingsPolicy, token).ConfigureAwait(false);
+                }
+            }
             string publication = Path.Combine(stage, ".publication"); RecoveryBlobStore.CheckLinks(publication);
             InstallPublicationJournal? journal = null;
             if (Directory.Exists(publication))
             {
                 journal = await InstallPublicationJournal.OpenAsync(root, stage, token).ConfigureAwait(false);
                 if (journal.InstanceId != saved.Command.InstanceName) throw new InvalidDataException("安装发布记录与任务实例不一致。");
-                if (await journal.ReadPhaseAsync(token).ConfigureAwait(false) == "committed")
+                if (!renaming && await journal.ReadPhaseAsync(token).ConfigureAwait(false) == "committed")
                 {
                     await journal.ApplyAsync(token).ConfigureAwait(false); // Verify what was committed before repairing the missing terminal marker.
                     await InstallTaskJournal.WriteStatusAsync(stage, saved, InstallTaskStatus.Completed, CancellationToken.None).ConfigureAwait(false);
@@ -96,7 +127,7 @@ public sealed partial class MinecraftInstallService
                 }
             }
             await InstallTaskJournal.WriteStatusAsync(stage, saved, InstallTaskStatus.RollbackRequested, token).ConfigureAwait(false);
-            if (journal is not null) await journal.RollbackAsync(token).ConfigureAwait(false);
+            if (journal is not null) await journal.RollbackAsync(token, enclosingRenamePending: renaming).ConfigureAwait(false);
             await InstallTaskJournal.WriteStatusAsync(stage, saved, InstallTaskStatus.RolledBack, CancellationToken.None).ConfigureAwait(false);
             task.Complete(newInstallation ? "已取消安装" : "已回滚修改");
             Installed?.Invoke(root);

@@ -162,7 +162,8 @@ public sealed partial class MinecraftInstallService
         if (command.Loader is { } primary) selected.Add(new(primary, command.LoaderBuild!));
         selected.AddRange((command.Addons ?? []).Select(addon => new InstallBuildSelection(addon.Kind, addon.Version)));
         var editPlan = MinecraftInstallEditPlanner.Evaluate(new(original, selected));
-        if (editPlan.Kind == MinecraftInstallEditKind.Unchanged)
+        bool renaming = command.NewInstanceName is not null && command.NewInstanceName != instance;
+        if (editPlan.Kind == MinecraftInstallEditKind.Unchanged && !renaming)
         {
             if (resumeStage is null && (command.NewInstanceName is null || command.NewInstanceName == instance)) task.Complete("没有需要修改的选项");
             return new(instance, Path.Combine(original.RootDirectory, "versions", instance));
@@ -182,6 +183,8 @@ public sealed partial class MinecraftInstallService
                 _ = await InstallTaskJournal.CreateAsync(stage, command with { RootDirectory = original.RootDirectory }, token).ConfigureAwait(false);
             }
             ReadyExecution(execution, stage);
+            if (editPlan.Kind == MinecraftInstallEditKind.Unchanged)
+                return new(instance, Path.Combine(original.RootDirectory, "versions", instance));
             if (editPlan.Kind == MinecraftInstallEditKind.ComponentsOnly)
                 await PrepareComponentEditAsync(command, original, editPlan, stage, task, token).ConfigureAwait(false);
             else
@@ -234,7 +237,7 @@ public sealed partial class MinecraftInstallService
         {
             executionLease?.Dispose();
             // An interrupted/failed publication owns the only durable originals. Keep it until resolved.
-            if (resumeStage is null && (safeToRemove || !_pauseForExit && !File.Exists(Path.Combine(stage, ".publication", "progress.json"))))
+            if (!renaming && resumeStage is null && (safeToRemove || !_pauseForExit && !File.Exists(Path.Combine(stage, ".publication", "progress.json"))))
             {
                 Management.RecoveryBlobStore.CheckLinks(stage);
                 try { Directory.Delete(stage, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }

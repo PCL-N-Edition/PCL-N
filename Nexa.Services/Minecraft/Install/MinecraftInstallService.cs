@@ -144,7 +144,11 @@ public sealed partial class MinecraftInstallService : IDisposable
             {
                 var current = await MinecraftInstallEditService.ReadAsync(new(command.RootDirectory, result.InstanceId), linked.Token).ConfigureAwait(false);
                 await MinecraftInstanceRenamer.RenameAsync(command.RootDirectory, result.InstanceId, command.NewInstanceName!,
-                    current.GameVersion, current.Fingerprint, _settingsPolicy!, _hostStore!, linked.Token).ConfigureAwait(false);
+                    current.GameVersion, current.Fingerprint, _settingsPolicy!, _hostStore!, linked.Token, Path.Combine(execution.Stage!, ".rename")).ConfigureAwait(false);
+                var saved = await InstallTaskJournal.ReadAsync(Path.GetFullPath(command.RootDirectory), execution.Stage!, CancellationToken.None).ConfigureAwait(false);
+                await InstallTaskJournal.WriteStatusAsync(execution.Stage!, saved, InstallTaskStatus.Completed, CancellationToken.None).ConfigureAwait(false);
+                var renameJournal = await InstanceRenameJournal.OpenAsync(Path.GetFullPath(command.RootDirectory), Path.Combine(execution.Stage!, ".rename"), CancellationToken.None).ConfigureAwait(false);
+                await renameJournal.RemoveCommittedMarkerAsync(CancellationToken.None).ConfigureAwait(false);
                 string old = result.InstanceId;
                 result = new(command.NewInstanceName!, Path.Combine(command.RootDirectory, "versions", command.NewInstanceName!));
                 task.Complete("已修改 " + result.InstanceId);
@@ -156,6 +160,15 @@ public sealed partial class MinecraftInstallService : IDisposable
         }
         catch (OperationCanceledException) when (linked.IsCancellationRequested)
         {
+            if (!_pauseForExit && execution.Stage is { } retained && command.NewInstanceName is { } renamed && renamed != command.InstanceName)
+            {
+                try { await RollbackInstallationAsync(command.RootDirectory, Guid.ParseExact(Path.GetFileName(retained), "N"), token: CancellationToken.None).ConfigureAwait(false); }
+                catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)
+                {
+                    task.Fail("改名撤回未完成，恢复记录已保留。");
+                    return XsrResult.Failure<MinecraftInstallResult>(MinecraftErrors.InvalidRequest(error.Message));
+                }
+            }
             // Either the task card or the dispatching caller stopped the run; both leave a
             // canceled task card and a cancelled result — never a raw escape to the caller.
             if (_pauseForExit) task.Paused(); else task.Canceled();

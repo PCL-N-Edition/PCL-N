@@ -23,17 +23,24 @@ internal static class MinecraftInstanceRenamer
     }
 
     internal static async Task RenameAsync(string root, string oldName, string newName, string gameVersion, string fingerprint,
-        SettingsPolicyService settings, XsrStateStore store, CancellationToken token)
+        SettingsPolicyService settings, XsrStateStore store, CancellationToken token, string? durableDirectory = null, bool acquireOperation = true)
     {
         if (!MinecraftVersionPaths.IsSafeReference(oldName) || !MinecraftVersionPaths.IsSafeReference(newName)
             || newName.TrimEnd(' ', '.') != newName || newName.Any(c => c is '<' or '>' or '"' or '|' or '?' or '*'))
             throw new InvalidDataException("版本名称包含无效字符。");
         if (oldName == newName) return;
-        using var recoveryOperation = await InstanceRecoveryOperationGate.EnterOperationAsync(Path.GetFullPath(root), token).ConfigureAwait(false);
+        using var recoveryOperation = acquireOperation ? await InstanceRecoveryOperationGate.EnterOperationAsync(Path.GetFullPath(root), token).ConfigureAwait(false) : null;
         await Gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
             root = Path.GetFullPath(root);
+            if (durableDirectory is not null && File.Exists(Path.Combine(durableDirectory, "plan.json")))
+            {
+                EnsureIdle(root, store, token);
+                var saved = await InstanceRenameJournal.OpenAsync(root, durableDirectory, token).ConfigureAwait(false);
+                await saved.ApplyAsync(settings, token).ConfigureAwait(false);
+                return;
+            }
             string versions = Path.Combine(root, "versions");
             string source = Path.Combine(versions, oldName), destination = Path.Combine(versions, newName);
             RecoveryBlobStore.CheckLinks(source); RecoveryBlobStore.CheckLinks(destination);
@@ -81,68 +88,17 @@ internal static class MinecraftInstanceRenamer
             bool hasJar = File.Exists(oldJar);
             RecoveryBlobStore.CheckLinks(oldJar);
             if (hasJar && !samePath && File.Exists(Path.Combine(source, newName + ".jar"))) throw new IOException("版本目录中已有目标名称的核心文件。");
-            string transaction = Path.Combine(root, ".nexa-rename", Guid.NewGuid().ToString("N"));
-            RecoveryBlobStore.CheckLinks(transaction); Directory.CreateDirectory(transaction);
-            for (int i = 0; i < edits.Count; i++) await File.WriteAllBytesAsync(Path.Combine(transaction, i + ".json.backup"), edits[i].Before, token).ConfigureAwait(false);
-            await File.WriteAllTextAsync(Path.Combine(transaction, "paths.txt"), string.Join('\n', edits.Select(item => item.OriginalPath)), token).ConfigureAwait(false);
-            string transit = Path.Combine(transaction, "instance");
-            bool moved = false, jarMoved = false, manifestMoved = false, committed = false, reverted = false;
-            var temporaryFiles = new List<string>();
+            string transaction = durableDirectory ?? Path.Combine(root, ".nexa-rename", Guid.NewGuid().ToString("N"));
+            var journal = await InstanceRenameJournal.PrepareAsync(root, transaction, source, destination, oldName, newName, hasJar, edits, settings, token).ConfigureAwait(false);
             try
             {
-                EnsureIdle(root, store, token); token.ThrowIfCancellationRequested();
-                foreach (var edit in edits)
-                    if (!(await ReadManifestAsync(edit.OriginalPath, token).ConfigureAwait(false)).AsSpan().SequenceEqual(edit.Before)) throw new IOException("版本清单已改变，请重试。");
-                Directory.Move(source, transit); moved = true;
-                Directory.Move(transit, destination);
-                File.Move(Path.Combine(destination, oldName + ".json"), Path.Combine(transaction, "original.json")); manifestMoved = true;
-                if (hasJar)
-                {
-                    File.Move(Path.Combine(destination, oldName + ".jar"), Path.Combine(transaction, "client.jar"));
-                    jarMoved = true;
-                    File.Move(Path.Combine(transaction, "client.jar"), Path.Combine(destination, newName + ".jar"));
-                }
-                foreach (var edit in edits)
-                {
-                    string temporary = edit.TargetPath + ".nexa-" + Guid.NewGuid().ToString("N") + ".tmp";
-                    RecoveryBlobStore.CheckLinks(edit.TargetPath);
-                    temporaryFiles.Add(temporary);
-                    await using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                        await output.WriteAsync(edit.After, token).ConfigureAwait(false);
-                    File.Move(temporary, edit.TargetPath, true);
-                }
-                var result = settings.MoveInstanceSettings(source, destination);
-                if (!result.IsSuccess) throw new IOException(result.Error?.Message ?? "无法迁移实例设置。");
-                committed = true;
+                await journal.ApplyAsync(settings, token).ConfigureAwait(false);
+                if (durableDirectory is null) await journal.RemoveCommittedMarkerAsync(CancellationToken.None).ConfigureAwait(false);
             }
-            finally
+            catch
             {
-                if (!committed && moved)
-                {
-                    string current = Directory.Exists(transit) ? transit : destination;
-                    foreach (var edit in edits)
-                    {
-                        string target = MinecraftLibraryService.PathComparer.Equals(Path.GetDirectoryName(edit.OriginalPath), source)
-                            ? Path.Combine(current, Path.GetFileName(edit.OriginalPath)) : edit.OriginalPath;
-                        File.WriteAllBytes(target, edit.Before);
-                    }
-                    if (manifestMoved && !samePath) File.Delete(Path.Combine(current, newName + ".json"));
-                    if (jarMoved)
-                    {
-                        string jar = File.Exists(Path.Combine(transaction, "client.jar")) ? Path.Combine(transaction, "client.jar") : Path.Combine(current, newName + ".jar");
-                        string temporaryJar = Path.Combine(transaction, "rollback.jar");
-                        File.Move(jar, temporaryJar);
-                        File.Move(temporaryJar, Path.Combine(current, oldName + ".jar"));
-                    }
-                    if (current != transit) Directory.Move(current, transit);
-                    Directory.Move(transit, source);
-                    reverted = true;
-                }
-                if (committed || reverted || !moved)
-                {
-                    foreach (string file in temporaryFiles) try { File.Delete(file); } catch (IOException) { } catch (UnauthorizedAccessException) { }
-                    try { Directory.Delete(transaction, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
-                }
+                if (durableDirectory is null) await journal.RollbackAsync(settings, CancellationToken.None).ConfigureAwait(false);
+                throw;
             }
         }
         finally { Gate.Release(); }
@@ -160,3 +116,4 @@ internal static class MinecraftInstanceRenamer
         return buffer[..total];
     }
 }
+

@@ -122,11 +122,11 @@ internal sealed class InstallPublicationJournal
         await ProgressAsync("committed", _files.Count, token).ConfigureAwait(false);
     }
 
-    internal async Task RollbackAsync(CancellationToken token)
+    internal async Task RollbackAsync(CancellationToken token, bool enclosingRenamePending = false)
     {
         var (phase, attempted) = await ReadProgressAsync(token).ConfigureAwait(false);
         if (phase == "rolled-back") return;
-        if (phase == "committed") throw new IOException("安装已提交，不能作为未完成任务回滚。");
+        if (phase == "committed" && !enclosingRenamePending) throw new IOException("安装已提交，不能作为未完成任务回滚。");
         await ProgressAsync("rolling-back", attempted, token).ConfigureAwait(false);
         for (int i = attempted - 1; i >= 0; i--)
         {
