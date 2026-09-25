@@ -4,6 +4,27 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static void ResourceEstimateExcludesDisabledMods()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var projection = new ResourceEstimatorProjection();
+        Dictionary<string, ICapability> facts = new()
+        {
+            [ModCatalog.ModCount.Id] = ModCatalog.ModCount.Observe(200, now, "fixture"),
+            [ModCatalog.ModEnabled.Id] = ModCatalog.ModEnabled.Observe(3, now, "fixture"),
+        };
+        long Read(string id) => ((Capability<long>)projection.Project(facts, now).Single(value => value.Id == id)).Value;
+        long enabledEstimate = Read("estimate.heap.mods");
+        AssertEqual(3L, Read("estimate.heap.mod_count"));
+        facts[ModCatalog.ModCount.Id] = ModCatalog.ModCount.Observe(1000, now, "fixture");
+        AssertEqual(enabledEstimate, Read("estimate.heap.mods"));
+        facts[ModCatalog.ModEnabled.Id] = ModCatalog.ModEnabled.Observe(0, now, "fixture");
+        AssertEqual(0L, Read("estimate.heap.mod_count"));
+        AssertEqual(0L, Read("estimate.heap.mods"));
+        facts.Remove(ModCatalog.ModEnabled.Id);
+        AssertEqual(1000L, Read("estimate.heap.mod_count"));
+    }
+
     private static void InputUsageIsSessionLocalAndExplicit()
     {
         InputUsageTracker tracker = new();

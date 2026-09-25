@@ -3,6 +3,11 @@
 Design sources: `PCL Nexa Machine Capability Registry 1.0.md` (§35–56), the
 resource-estimation supplement supplied on 2026-09-19, and XSR-725.
 
+Local fallback estimates use `mod.enabled` when available; `mod.count` remains the inventory
+total including disabled files. A known enabled count of zero is authoritative. Legacy callers
+without an available enabled count retain the total-count fallback. File counts remain coarse
+priors, not evidence of mod costs or equivalence between different mod combinations.
+
 ## Observation contract
 
 Services own per-launch resource observation. Random session identity links samples only

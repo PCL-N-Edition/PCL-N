@@ -54,7 +54,8 @@ internal static class ResourceEstimateModel
         ResourceEstimatorProfile profile, ResourceObservationHistory history)
     {
         Dictionary<string, ICapability> values = source.ToDictionary(static value => value.Id, StringComparer.Ordinal);
-        long modCount = ReadLong(values, "mod.count");
+        // The inventory total includes disabled files, which do not participate in the next launch.
+        long modCount = ReadLong(values, Available(values, "mod.enabled") ? "mod.enabled" : "mod.count");
         long classCount = ReadLong(values, "mod.class.count");
         long resourceHeap = (long)Math.Ceiling(BytesToMiB(ReadLong(values, "resource.derived.steady_memory"))
             * profile.Coefficients.GetValueOrDefault("resource_weight", 1));
