@@ -44,11 +44,13 @@ def windows(root, base):
         run(executable.parent / "unins000.exe", "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART")
     check_removed()
     msi = root / (base + ".msi")
-    run("msiexec.exe", "/i", msi, "/qn", "/norestart")
+    diagnostics = root.parent / "install-diagnostics"
+    diagnostics.mkdir(parents=True, exist_ok=True)
+    run("msiexec.exe", "/i", msi, "/qn", "/norestart", "/L*V", diagnostics / "msi-install.log")
     try:
         check()
     finally:
-        run("msiexec.exe", "/x", msi, "/qn", "/norestart")
+        run("msiexec.exe", "/x", msi, "/qn", "/norestart", "/L*V", diagnostics / "msi-uninstall.log")
     check_removed()
 
 

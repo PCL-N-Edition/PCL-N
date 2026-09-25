@@ -158,6 +158,13 @@ jobs:
       - name: Verify machine-wide installation on disposable runner
         shell: bash
         run: python eng/release/smoke_install.py artifacts "$PRODUCT_VERSION" '${{ matrix.rid }}'
+      - name: Preserve installer diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: install-diagnostics-${{ matrix.rid }}
+          path: install-diagnostics/*
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Nexa-${{ matrix.rid }}

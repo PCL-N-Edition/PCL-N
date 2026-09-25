@@ -14,7 +14,8 @@ class InstallScopeTests(unittest.TestCase):
         for leftover in ("desktop", "menu", "host", "executable", None):
             for failed_uninstall in ("exe", "msi"):
                 with self.subTest(leftover=leftover, failed_uninstall=failed_uninstall), tempfile.TemporaryDirectory() as temporary:
-                    root = Path(temporary)
+                    root = Path(temporary) / "artifacts"
+                    root.mkdir()
                     files = {
                         "executable": root / "programs/NexaCL/Nexa.Desktop.exe",
                         "host": root / "programs/NexaCL/Nexa.Jvm.Host.exe",
