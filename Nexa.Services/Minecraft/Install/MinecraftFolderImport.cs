@@ -152,6 +152,7 @@ public sealed class MinecraftFolderImportService(TaskCenterService tasks)
             var source = Inspect(command.Source);
             if (source.Kind != MinecraftFolderKind.Version) throw new InvalidDataException("该文件夹不是可导入的版本目录。");
             string target = MinecraftLibraryService.NormalizeDirectory(command.TargetRoot);
+            using var recoveryOperation = await Management.InstanceRecoveryOperationGate.EnterOperationAsync(target, token).ConfigureAwait(false);
             RejectLinks(target);
             if (IsWithin(target, source.Path) || IsWithin(source.Path, target))
                 throw new InvalidDataException("源版本与目标游戏目录不能相互包含。请直接使用原游戏目录。");

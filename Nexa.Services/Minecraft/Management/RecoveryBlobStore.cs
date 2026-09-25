@@ -131,6 +131,26 @@ internal sealed class RecoveryBlobStore
         return await AcquireAsync(".manifest.lock", token).ConfigureAwait(false);
     }
 
+    // Caller must hold the manifest lease. Pending recovery journals pin their objects.
+    internal async Task CollectUnreferencedAsync(IReadOnlySet<string> retained, CancellationToken token)
+    {
+        string transactions = Path.Combine(_root, "transactions");
+        CheckLinks(transactions);
+        if (Directory.Exists(transactions) || !Directory.Exists(_objects)) return;
+        await using var lease = await AcquireAsync(".objects.lock", token).ConfigureAwait(false);
+        CheckLinks(_objects);
+        int visited = 0;
+        foreach (string path in Directory.EnumerateFiles(_objects, "*.br"))
+        {
+            token.ThrowIfCancellationRequested();
+            if (++visited > 100000) break;
+            string hash = Path.GetFileNameWithoutExtension(path);
+            if (hash.Length != 64 || hash.Any(c => c is not (>= '0' and <= '9' or >= 'A' and <= 'F')) || retained.Contains(hash)) continue;
+            CheckLinks(path);
+            File.Delete(path);
+        }
+    }
+
     private async Task<FileStream> AcquireAsync(string name, CancellationToken token)
     {
         string path = Path.Combine(_root, name);

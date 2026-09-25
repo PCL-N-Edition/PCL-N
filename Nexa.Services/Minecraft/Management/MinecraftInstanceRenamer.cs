@@ -29,6 +29,7 @@ internal static class MinecraftInstanceRenamer
             || newName.TrimEnd(' ', '.') != newName || newName.Any(c => c is '<' or '>' or '"' or '|' or '?' or '*'))
             throw new InvalidDataException("版本名称包含无效字符。");
         if (oldName == newName) return;
+        using var recoveryOperation = await InstanceRecoveryOperationGate.EnterOperationAsync(Path.GetFullPath(root), token).ConfigureAwait(false);
         await Gate.WaitAsync(token).ConfigureAwait(false);
         try
         {

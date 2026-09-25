@@ -26,6 +26,10 @@ internal sealed class RecoveryCapturePlan
 
     internal static async Task<RecoverySnapshot> CaptureAsync(string root, string instance, string game, string manifest,
         string settingsDocument, CancellationToken token = default)
+        => await CaptureAsync(root, instance, game, manifest, settingsDocument, null, token).ConfigureAwait(false);
+
+    internal static async Task<RecoverySnapshot> CaptureAsync(string root, string instance, string game, string manifest,
+        string settingsDocument, Func<CancellationToken, Task>? validate, CancellationToken token = default)
     {
         var sources = await BuildAsync(root, instance, game, manifest, token).ConfigureAwait(false);
         var store = new RecoverySnapshotStore(instance, game);
@@ -33,6 +37,7 @@ internal sealed class RecoveryCapturePlan
         {
             var current = await BuildAsync(root, instance, game, manifest, cancellation).ConfigureAwait(false);
             if (!sources.SequenceEqual(current)) throw new IOException("采集期间恢复范围发生变化，已保留上一个快照。");
+            if (validate is not null) await validate(cancellation).ConfigureAwait(false);
         }, token).ConfigureAwait(false);
     }
 

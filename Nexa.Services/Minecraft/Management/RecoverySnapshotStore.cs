@@ -91,6 +91,9 @@ internal sealed class RecoverySnapshotStore
             }
             token.ThrowIfCancellationRequested();
             File.Move(temporary, _manifest, overwrite: true);
+            // Cleanup failure cannot undo a committed baseline. Retry on the next capture.
+            try { await _blobs.CollectUnreferencedAsync(files.Select(file => file.Blob.Sha256).ToHashSet(StringComparer.Ordinal), token).ConfigureAwait(false); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or OperationCanceledException) { }
             return snapshot;
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }

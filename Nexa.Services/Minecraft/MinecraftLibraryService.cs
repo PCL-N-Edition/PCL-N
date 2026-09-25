@@ -163,6 +163,8 @@ public sealed class MinecraftLibraryService : IDisposable
         return await Task.Run(async () =>
         {
             Task<XsrResult> refresh;
+            using var recoveryOperation = await Management.InstanceRecoveryOperationGate.EnterOperationAsync(
+                Path.GetFullPath(root), cancellationToken).ConfigureAwait(false);
             lock (_gate)
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);

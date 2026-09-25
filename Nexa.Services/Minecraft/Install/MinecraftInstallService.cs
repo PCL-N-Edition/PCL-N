@@ -122,6 +122,8 @@ public sealed partial class MinecraftInstallService : IDisposable
             cancellationToken, task.CancellationToken);
         try
         {
+            using var recoveryOperation = await InstanceRecoveryOperationGate.EnterOperationAsync(
+                Path.GetFullPath(command.RootDirectory), linked.Token).ConfigureAwait(false);
             command = command with { InheritVanilla = command.InheritVanilla ?? _inheritVanilla?.Invoke() ?? false };
             bool renaming = command.NewInstanceName is { } requested && requested != command.InstanceName;
             if (renaming && (command.EditFingerprint is null || _settingsPolicy is null || _hostStore is null

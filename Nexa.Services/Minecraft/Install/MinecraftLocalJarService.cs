@@ -89,6 +89,7 @@ public sealed class MinecraftLocalJarService(TaskCenterService tasks, XsrStateSt
             LocalJarArtifact inspected = await InspectAsync(command.Artifact.Path, token).ConfigureAwait(false);
             if (inspected != command.Artifact) throw new InvalidDataException("文件已变化，请重新拖入。");
             string root = MinecraftLibraryService.NormalizeDirectory(command.Root);
+            using var recoveryOperation = await Management.InstanceRecoveryOperationGate.EnterOperationAsync(root, token).ConfigureAwait(false);
             CheckPath(root);
             if (command.Action == LocalJarAction.Loader)
             {

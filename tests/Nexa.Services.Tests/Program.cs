@@ -5,6 +5,11 @@ internal static partial class Program
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
         ("recovery captures publish complete manifests only", RecoveryCaptureCommitsOnlyCompleteManifests),
+        ("recovery captures yield without serializing operations", RecoveryCaptureYieldsToOperationsWithoutSerializingThem),
+        ("recovery cancellation releases pending reservations", RecoveryGateCancellationDoesNotLeakReservations),
+        ("install cancels snapshot before writing files", InstallCancelsSnapshotBeforeWritingFiles),
+        ("recovery service captures only complete successful exits", RecoveryServiceCapturesOnlyConfirmedCompleteSuccessfulExits),
+        ("Jvm host successful exit automatically captures recovery baseline", JvmHostSuccessfulExitAutomaticallyCreatesRecoveryBaseline),
         ("instance rename preserves data settings and dependencies", InstanceRenamePreservesDataSettingsAndDependencies),
         ("instance rename rejects active games and rolls back settings failure", InstanceRenameRejectsActiveGamesAndRollsBackSettingsFailure),
         ("recovery plans include dependencies and protect worlds", RecoveryPlanIncludesDependenciesAndProtectsUserWorlds),

@@ -86,12 +86,15 @@ public sealed class JvmHostService : IJvmHost
     private readonly XsrStateStore? _store;
     private readonly XsrStateId _observationsId;
     private readonly ResourceObservationHistory? _history;
+    private readonly Management.InstanceRecoveryService? _recovery;
 
-    public JvmHostService(MinecraftProcessService processes, ResourceObservationHistory? history = null)
+    public JvmHostService(MinecraftProcessService processes, ResourceObservationHistory? history = null,
+        Management.InstanceRecoveryService? recovery = null)
     {
         _processes = processes ?? throw new ArgumentNullException(nameof(processes));
         _store = processes.StateStore;
         _history = history;
+        _recovery = recovery;
         if (_store is not null) _observationsId = _store.Resolve(JvmHostStateContract.ObservationsKey);
     }
 
@@ -117,7 +120,10 @@ public sealed class JvmHostService : IJvmHost
     {
         long started = Environment.TickCount64;
         _ = Describe(plan); // validate and freeze the environment view before spawning.
-        MinecraftProcessSession session = await _processes.StartAsync(plan, instanceId, cancellationToken).ConfigureAwait(false);
+        MinecraftProcessSession session;
+        using (var recoveryOperation = plan.MinecraftRootDirectory is { } root
+            ? await Management.InstanceRecoveryOperationGate.EnterOperationAsync(Path.GetFullPath(root), cancellationToken).ConfigureAwait(false) : null)
+            session = await _processes.StartAsync(plan, instanceId, cancellationToken).ConfigureAwait(false);
         long launchDuration = Math.Max(0, Environment.TickCount64 - started);
         Task<JvmRunContext?> context = CollectContextAsync(session, plan);
         _ = ObserveAsync(session, plan, launchDuration, context);
@@ -270,6 +276,8 @@ public sealed class JvmHostService : IJvmHost
             observedMilliseconds, successfulSamples, samplingComplete,
             epoch == 0 && JvmRunSettings.Read(plan.GameDirectory) == settings && settingsFileStable
                 && settingsFingerprint == GameOptionsFingerprint.Read(plan.GameDirectory));
+        if (_recovery is not null)
+            await _recovery.RecordSuccessfulExitAsync(plan, snapshot, crashReport is not null || hsErr is not null).ConfigureAwait(false);
         if (historySample is not null && await contextTask.ConfigureAwait(false) is { } context
             && ModInventoryFingerprint.Create(context.Inventory) is { } fingerprint)
             _history?.Record(historySample with { ModFingerprint = fingerprint, SettingsFingerprint = settingsFingerprint });

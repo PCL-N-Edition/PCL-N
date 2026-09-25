@@ -22,6 +22,7 @@ public sealed partial class MinecraftInstallService
         try
         {
             string root = MinecraftLibraryService.NormalizeDirectory(command.RootDirectory);
+            using var recoveryOperation = await Management.InstanceRecoveryOperationGate.EnterOperationAsync(root, token).ConfigureAwait(false);
             MinecraftModpackArchive.CheckPath(root);
             stage = ForgeInstallService.Contained(root, ".nexa-pack-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(stage);

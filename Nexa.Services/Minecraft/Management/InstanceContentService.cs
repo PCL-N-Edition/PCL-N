@@ -25,6 +25,8 @@ public static class InstanceContentService
                 if (!MinecraftVersionPaths.IsSafeReference(command.Name) || ModEnabled(command.Name) is not { } enabled)
                     throw new InvalidDataException("请选择有效的模组文件。");
                 var snapshot = await InstanceManagementService.ReadAsync(new(command.InstanceDirectory), token).ConfigureAwait(false);
+                using var recoveryOperation = await InstanceRecoveryOperationGate.EnterOperationAsync(
+                    Directory.GetParent(snapshot.InstanceDirectory)!.Parent!.FullName, token).ConfigureAwait(false);
                 var page = snapshot.Pages.FirstOrDefault(page => page.Id == "mods")
                     ?? throw new InvalidDataException("此版本没有可管理的模组加载器。");
                 string source = Path.Combine(page.Directory!, command.Name);
