@@ -50,6 +50,31 @@ class ArtifactBoundaryTests(unittest.TestCase):
                 pilot.normalize_context(context | {"mods": [mod | change]})
         with self.assertRaises(ValueError):
             pilot.normalize_context(context | {"mods": [mod] * 4097})
+        dependencies = {f"mod_{index}": ">=1" for index in range(64)}
+        result = pilot.normalize_context(context | {"mods": [mod | {"dependencies": dependencies}]})
+        self.assertEqual(dependencies, result["mods"][0]["dependencies"])
+        with self.assertRaises(ValueError):
+            pilot.normalize_context(context | {"mods": [mod | {"dependencies": dependencies | {"extra": "1"}}]})
+
+    def test_rejects_inconsistent_windows_and_summary(self):
+        row = ["0", "30000", "30000", "0", "60", "1024", "2048", "3072", "10", "40", "1", "0"]
+        for index, value in [(0, "0.5"), (1, "-1"), (2, "30001"), (3, "-1"), (4, "0"),
+                             (5, "-1"), (6, "512"), (8, "-2"), (9, "40.5"), (10, "2"), (11, "1")]:
+            invalid = row.copy()
+            invalid[index] = value
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                pilot.normalize(self.fixture(), pilot.HEADER + "\n" + ",".join(invalid))
+        source = pilot.HEADER + "\n" + ",".join(row)
+        for change in [{"sampleWindows": 2}, {"terminalSample": False}, {"contiguous": False}]:
+            with self.assertRaises(ValueError):
+                pilot.normalize(self.fixture() | change, source)
+        with self.assertRaises(ValueError):
+            pilot.normalize(self.fixture() | {"sampleWindows": 2}, source + "\n" + ",".join(row))
+
+    def test_preserves_missing_observations_without_fabricating_zero(self):
+        source = pilot.HEADER + "\n0,1,1,0,0,-1,-1,-1,-1,-1,1,0\n"
+        _, normalized = pilot.normalize(self.fixture(), source)
+        self.assertIn("-1,-1,-1,-1,-1", normalized)
 
     @unittest.skipUnless(hasattr(os, "O_NOFOLLOW"), "Production collector runs on Linux")
     def test_collector_rejects_symlinks_and_oversized_files(self):

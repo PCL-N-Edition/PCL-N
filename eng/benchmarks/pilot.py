@@ -66,6 +66,8 @@ def normalize(document, csv_text):
     if not rows or rows[0] != HEADER.split(",") or len(rows) > 128:
         raise ValueError("Invalid sample columns or row count")
     normalized = [rows[0]]
+    previous_sequence, previous_elapsed = -1, 0
+    contiguous, terminal = True, False
     for row in rows[1:]:
         if len(row) != 12:
             raise ValueError("Invalid sample row")
@@ -78,7 +80,30 @@ def normalize(document, csv_text):
             if not math.isfinite(number) or not -2147483648 <= number <= 1e12:
                 raise ValueError("Invalid sample value")
             values.append(format(number, ".17g"))
+        numeric = [None if value == "" else float(value) for value in values]
+        for index in (0, 1, 2, 3, 4, 9, 10, 11):
+            if numeric[index] is not None and not numeric[index].is_integer():
+                raise ValueError("Fractional sample counter")
+        sequence, elapsed, duration, epoch, samples = numeric[:5]
+        if (terminal or sequence <= previous_sequence or elapsed < previous_elapsed
+            or duration < 0 or duration > elapsed or epoch < 0 or samples < 0
+            or numeric[10] not in (0, 1)):
+            raise ValueError("Invalid sample ordering or window")
+        if any(value < 0 and value != -1 for value in numeric[5:10]):
+            raise ValueError("Invalid resource observation")
+        if samples == 0 and any(numeric[index] != -1 for index in (5, 6, 7, 8, 9)):
+            raise ValueError("Empty window contains fabricated observations")
+        if samples > 0 and (any(numeric[index] < 0 for index in (5, 6, 7, 9)) or numeric[6] < numeric[5]):
+            raise ValueError("Invalid measured window")
+        contiguous &= sequence == previous_sequence + 1
+        terminal = numeric[10] == 1
+        if numeric[11] is not None and (not terminal or numeric[11] != document["exitCode"]):
+            raise ValueError("Exit metadata does not match terminal window")
+        previous_sequence, previous_elapsed = sequence, elapsed
         normalized.append(values)
+    if (document["sampleWindows"] != len(rows) - 1 or document["contiguous"] != contiguous
+        or document["terminalSample"] != terminal):
+        raise ValueError("Summary does not match sample windows")
     result = {key: document[key] for key in integers + flags}
     result.update(schema=1, source="controlled-benchmark", packId=pack["id"], packSha256=pack["sha256"],
                   minecraft=pack["minecraft"], loader=pack["loader"], scenario="unverified-client",
@@ -115,7 +140,7 @@ def normalize_context(document):
         if (not isinstance(item, dict) or not matches(identity, item.get("id")) or not matches(version, item.get("version"))
             or item.get("format") not in formats or type(item.get("enabled")) is not bool
             or type(item.get("dependenciesComplete")) is not bool or not isinstance(item.get("dependencies"), dict)
-            or len(item["dependencies"]) > 8
+            or len(item["dependencies"]) > 64
             or any(not matches(identity, key) or not matches(dependency, value) for key, value in item["dependencies"].items())):
             raise ValueError("Invalid mod context")
         output.append({key: item[key] for key in ("id", "version", "format", "enabled", "dependenciesComplete", "dependencies")})

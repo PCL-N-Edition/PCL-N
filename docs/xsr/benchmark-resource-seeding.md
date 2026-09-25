@@ -31,6 +31,10 @@ memory cap. It mounts only published tools, Java, the pack and a fresh output di
 credentials. The container is stopped before a separate bounded no-follow collector normalizes the
 three allowed measurement files. The context has a 16 MiB actual-read ceiling, up to 4096 mod entries,
 and explicit metadata allowlists; the collector strips extra fields and validates identifiers/ranges.
+Each mod retains up to 64 dependencies, matching the shared metadata reader. The collector checks
+integer counters, ordered windows, terminal/exit consistency, measured peaks and summary counts.
+Unknown observations retain their -1 sentinel; empty windows must not fabricate zero measurements.
+These integrity checks do not establish scenario eligibility or make container output trustworthy.
 No recursive game-directory/log upload is allowed. The job can be
 triggered manually and runs on changes to its reviewed catalog/workflow; there is no nightly large
 matrix yet. Container/runner performance is not a hardware-rendered player baseline.
