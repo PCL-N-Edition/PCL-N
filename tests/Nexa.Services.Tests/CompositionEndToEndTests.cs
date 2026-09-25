@@ -82,7 +82,12 @@ internal static partial class Program
         FoundationRuntime runtime = FoundationRuntimeComposer.Compose(host, observer);
 
         AssertEqual(11, runtime.Commands.Count);
-        AssertEqual(9, runtime.Queries.Count);
+        AssertEqual(10, runtime.Queries.Count);
+        AssertTrue(runtime.Queries.TryResolve(Nexa.Services.Minecraft.Management.InstanceRecoveryContract.Query, out var recoveryQuery));
+        var recovery = await runtime.Queries.QueryAsync<Nexa.Services.Minecraft.Management.InstanceRecoveryQuery, Nexa.Services.Minecraft.Management.InstanceRecoveryReport>(
+            recoveryQuery, new(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "versions", "test")));
+        AssertTrue(recovery.IsSuccess);
+        AssertTrue(recovery.Value!.BaselineRevision is null);
         AssertTrue(runtime.Queries.TryResolve(Nexa.Services.Minecraft.Management.InstanceManagementContract.Query, out _));
         AssertTrue(runtime.Queries.TryResolve(MachineCapabilityStateContract.PreflightQuery,
             out XsrQueryId preflightQuery));

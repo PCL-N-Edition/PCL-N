@@ -101,6 +101,9 @@ public static class FoundationRuntimeComposer
         XsrQueryRouterBuilder queries = new();
         queries.Register<InstanceManagementQuery, InstanceManagementSnapshot>(InstanceManagementContract.Query,
             async (query, token) => Nexa.Xsr.XsrResult.Success(await InstanceManagementService.ReadAsync(query, token).ConfigureAwait(false)));
+        var recovery = new InstanceRecoveryService(host.SettingsPolicy, host.StateStore, host.Logging);
+        queries.Register<InstanceRecoveryQuery, InstanceRecoveryReport>(InstanceRecoveryContract.Query,
+            async (query, token) => await recovery.ReadAsync(query, token).ConfigureAwait(false));
         queries.Register(
             FoundationRouteIds.SettingsGet,
             FoundationQueries.CreateSettingsGetHandler(host.Settings));

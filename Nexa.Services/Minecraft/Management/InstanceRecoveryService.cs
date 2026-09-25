@@ -7,7 +7,7 @@ using Nexa.Xsr.State;
 namespace Nexa.Services.Minecraft.Management;
 
 /// <summary>Owns best-effort background capture after a confirmed successful game session.</summary>
-public sealed class InstanceRecoveryService(SettingsPolicyService settings, XsrStateStore store, LogService? log = null)
+public sealed partial class InstanceRecoveryService(SettingsPolicyService settings, XsrStateStore store, LogService? log = null)
 {
     internal Task<bool> RecordSuccessfulExitAsync(MinecraftLaunchPlan plan, MinecraftProcessSnapshot session,
         bool hasCrashEvidence, CancellationToken token = default) => Task.Run(async () =>

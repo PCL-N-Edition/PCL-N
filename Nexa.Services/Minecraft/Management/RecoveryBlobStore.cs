@@ -94,7 +94,7 @@ internal sealed class RecoveryBlobStore
             throw new InvalidDataException("快照对象校验失败，未允许提交恢复文件。");
     }
 
-    private static async Task<string> CopyAndHashAsync(Stream source, Stream destination, long expectedLength, RecoveryByteBudget budget, CancellationToken token)
+    internal static async Task<string> CopyAndHashAsync(Stream source, Stream destination, long expectedLength, RecoveryByteBudget budget, CancellationToken token)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         byte[] buffer = new byte[81920];

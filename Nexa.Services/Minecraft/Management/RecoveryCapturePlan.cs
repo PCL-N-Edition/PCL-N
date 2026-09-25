@@ -47,16 +47,41 @@ internal sealed class RecoveryCapturePlan
         if (!MinecraftLibraryService.PathComparer.Equals(Path.GetDirectoryName(Path.GetFullPath(manifest)), plan._instance))
             throw new InvalidDataException("当前清单不属于指定实例。");
         await plan.VisitManifestAsync(Path.GetFullPath(manifest), 0).ConfigureAwait(false);
-        foreach (string file in plan.Entries(plan._instance).Where(File.Exists))
-            if (Path.GetExtension(file).Equals(".jar", StringComparison.OrdinalIgnoreCase)) plan.Add(file);
-        string metadata = Path.Combine(plan._instance, "Nexa", "InstanceMetadata.json");
+        plan.AddOwnFiles();
+        return plan.Sources();
+    }
+
+    internal static IReadOnlyList<RecoverySource> BuildComparison(string root, RecoverySnapshot baseline, CancellationToken token)
+    {
+        var plan = new RecoveryCapturePlan(root, baseline.InstanceDirectory, baseline.GameDirectory, token);
+        var store = new RecoverySnapshotStore(baseline.InstanceDirectory, baseline.GameDirectory);
+        foreach (var file in baseline.Files)
+        {
+            string path = store.ResolveSource(file.Source);
+            RecoveryBlobStore.CheckLinks(path);
+            if (Directory.Exists(path)) throw new IOException("原文件已被同名目录替代，请先处理目录冲突。");
+            if (File.Exists(path)) plan.Add(path);
+        }
+        string manifest = Path.Combine(plan._instance, Path.GetFileName(plan._instance) + ".json");
+        if (File.Exists(manifest)) plan.Add(manifest);
+        plan.AddOwnFiles();
+        return plan.Sources();
+    }
+
+    private System.Collections.ObjectModel.ReadOnlyCollection<RecoverySource> Sources() =>
+        Array.AsReadOnly(_sources.OrderBy(item => item.Key, MinecraftLibraryService.PathComparer).Select(item => item.Value).ToArray());
+
+    private void AddOwnFiles()
+    {
+        foreach (string file in Entries(_instance).Where(File.Exists))
+            if (Path.GetExtension(file).Equals(".jar", StringComparison.OrdinalIgnoreCase)) Add(file);
+        string metadata = Path.Combine(_instance, "Nexa", "InstanceMetadata.json");
         RecoveryBlobStore.CheckLinks(metadata);
-        if (File.Exists(metadata)) plan.Add(metadata);
+        if (File.Exists(metadata)) Add(metadata);
         foreach (string name in new[] { "mods", "config", "defaultconfigs", "scripts", "kubejs", "resourcepacks", "shaderpacks" })
-            plan.Tree(Path.Combine(plan._game, name), 0);
-        foreach (string file in plan.Entries(plan._game).Where(File.Exists))
-            if (Path.GetFileName(file).StartsWith("options", StringComparison.OrdinalIgnoreCase) && Path.GetExtension(file).Equals(".txt", StringComparison.OrdinalIgnoreCase)) plan.Add(file);
-        return Array.AsReadOnly(plan._sources.OrderBy(item => item.Key, MinecraftLibraryService.PathComparer).Select(item => item.Value).ToArray());
+            Tree(Path.Combine(_game, name), 0);
+        foreach (string file in Entries(_game).Where(File.Exists))
+            if (Path.GetFileName(file).StartsWith("options", StringComparison.OrdinalIgnoreCase) && Path.GetExtension(file).Equals(".txt", StringComparison.OrdinalIgnoreCase)) Add(file);
     }
 
     private string[] Entries(string directory)
@@ -97,6 +122,7 @@ internal sealed class RecoveryCapturePlan
         // Dependencies outside the instance must not be mistaken for general shared game content.
         if (relative.StartsWith("versions" + Path.DirectorySeparatorChar, StringComparison.Ordinal)) area = "root";
         _sources[path] = new(area, relative);
+        if (_sources.Count > RecoverySnapshotStore.MaxFiles) throw new InvalidDataException("恢复文件数量超过限制。");
     }
 
     private static bool Within(string root, string path, out string relative)

@@ -142,7 +142,7 @@ internal sealed class RecoverySnapshotStore
             files.AsReadOnly(), ParseSettings(document["settings"]?.ToJsonString() ?? "").ToJsonString());
     }
 
-    private string ResolveSource(RecoverySource source)
+    internal string ResolveSource(RecoverySource source)
     {
         string root = source.Area switch
         {
