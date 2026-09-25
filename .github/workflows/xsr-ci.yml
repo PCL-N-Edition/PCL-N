@@ -66,6 +66,12 @@ jobs:
           security unlock-keychain -p '' "$RUNNER_TEMP/nexa-test.keychain-db"
       - name: Publish NativeAOT account tests
         run: dotnet publish tests/Nexa.Services.Tests -c Release -p:PublishAot=true -o native-account-tests
+      - name: Exercise native input discovery without hooks
+        shell: pwsh
+        run: |
+          $binary = if ($IsWindows) { './native-account-tests/Nexa.Services.Tests.exe' } else { './native-account-tests/Nexa.Services.Tests' }
+          & $binary "native input probe" "Linux input"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run Windows native protection
         if: runner.os == 'Windows'
         run: ./native-account-tests/Nexa.Services.Tests.exe "native profile protection"

@@ -182,13 +182,11 @@ public sealed class FormFactorCapabilityProvider(Func<bool>? batteryPresent = nu
     private static bool DefaultTouchProbe() =>
         OperatingSystem.IsWindows()
             ? WindowsInputProbe.HasTouch(GetSystemMetrics(SmDigitizer))
-            : OperatingSystem.IsLinux() && File.Exists("/proc/bus/input/devices")
-                && File.ReadAllText("/proc/bus/input/devices").Contains("Touchscreen", StringComparison.OrdinalIgnoreCase);
+            : OperatingSystem.IsLinux() && LinuxInputProbe.Read().Devices.Any(device => device.Touch);
 
     private static bool DefaultKeyboardProbe() => OperatingSystem.IsWindows()
         ? WindowsInputProbe.KeyboardPresent() != false
-        : OperatingSystem.IsLinux() && (Environment.GetEnvironmentVariable("DISPLAY") is not null
-            || Environment.GetEnvironmentVariable("WAYLAND_DISPLAY") is not null);
+        : OperatingSystem.IsLinux() && LinuxInputProbe.Read().Devices.Any(device => device.Keyboard);
 
     private static bool DefaultControllerProbe()
     {
@@ -250,7 +248,9 @@ public sealed class InputCapabilityProvider(InputUsageTracker? usage = null) : I
             return ValueTask.FromResult<IReadOnlyList<ICapability>>(AppendUsage(CollectLinux(timestamp), timestamp));
         }
 
-        return ValueTask.FromResult<IReadOnlyList<ICapability>>(AppendUsage(Unavailable(timestamp, "macOS 需要 IOKit HID 通道，尚未接入"), timestamp));
+        if (OperatingSystem.IsMacOS())
+            return ValueTask.FromResult<IReadOnlyList<ICapability>>(AppendUsage(MacInputProbe.Collect(timestamp), timestamp));
+        return ValueTask.FromResult<IReadOnlyList<ICapability>>(AppendUsage(Unavailable(timestamp, "此平台尚未接入输入设备通道"), timestamp));
     }
 
     private System.Collections.ObjectModel.ReadOnlyCollection<ICapability> AppendUsage(IEnumerable<ICapability> facts, DateTimeOffset timestamp)
@@ -276,8 +276,6 @@ public sealed class InputCapabilityProvider(InputUsageTracker? usage = null) : I
         int digitizer = GetSystemMetrics(SmDigitizer);
         bool? keyboard = WindowsInputProbe.KeyboardPresent();
         List<(string Name, bool Haptics)> controllers = ReadXInputControllers();
-        IReadOnlyList<InputDeviceFeature> gyroscopes = Array.AsReadOnly(controllers
-            .Select(static controller => new InputDeviceFeature(controller.Name, false)).ToArray());
         IReadOnlyList<InputDeviceFeature> haptics = Array.AsReadOnly(controllers
             .Select(static controller => new InputDeviceFeature(controller.Name, controller.Haptics)).ToArray());
         return Array.AsReadOnly(new ICapability[]
@@ -290,39 +288,15 @@ public sealed class InputCapabilityProvider(InputUsageTracker? usage = null) : I
             InputCatalog.InputPenAvailable.Observe(WindowsInputProbe.HasPen(digitizer), timestamp, source),
             InputCatalog.InputControllerCount.Observe(controllers.Count, timestamp, source),
             InputCatalog.InputControllerAvailable.Observe(controllers.Count > 0, timestamp, source),
-            InputCatalog.InputGyroscopeAvailable.Observe(false, timestamp, source + "（XInput 不公开陀螺仪通道）"),
+            InputCatalog.InputGyroscopeAvailable.Unavailable(CapabilityAvailability.Unknown, timestamp, "XInput 不公开陀螺仪通道"),
             InputCatalog.InputHapticsAvailable.Observe(controllers.Any(static controller => controller.Haptics), timestamp, source),
-            InputCatalog.InputGyroscopeDevices.Observe(gyroscopes, timestamp, source),
+            InputCatalog.InputGyroscopeDevices.Unavailable(CapabilityAvailability.Unknown, timestamp, "XInput 不公开陀螺仪通道"),
             InputCatalog.InputHapticsDevices.Observe(haptics, timestamp, source),
         });
     }
 
-    private static System.Collections.ObjectModel.ReadOnlyCollection<ICapability> CollectLinux(DateTimeOffset timestamp)
-    {
-        const string source = "Linux /proc/bus/input/devices + /dev/input/js*";
-        string devices = File.Exists("/proc/bus/input/devices") ? File.ReadAllText("/proc/bus/input/devices") : string.Empty;
-        int controllers = Directory.Exists("/dev/input") && Directory.EnumerateFiles("/dev/input", "js*").Any()
-            ? Math.Max(1, Directory.EnumerateFiles("/dev/input", "js*").Count())
-            : 0;
-        return Array.AsReadOnly(new ICapability[]
-        {
-            InputCatalog.InputKeyboardAvailable.Observe(devices.Contains("keyboard", StringComparison.OrdinalIgnoreCase) || InternalKeyboardLikely(), timestamp, source),
-            InputCatalog.InputMouseAvailable.Observe(devices.Contains("mouse", StringComparison.OrdinalIgnoreCase), timestamp, source),
-            InputCatalog.InputTouchAvailable.Observe(devices.Contains("Touchscreen", StringComparison.OrdinalIgnoreCase), timestamp, source),
-            InputCatalog.InputPenAvailable.Observe(devices.Contains("pen", StringComparison.OrdinalIgnoreCase), timestamp, source),
-            InputCatalog.InputControllerCount.Observe(controllers, timestamp, source),
-            InputCatalog.InputControllerAvailable.Observe(controllers > 0, timestamp, source),
-            InputCatalog.InputGyroscopeAvailable.Unavailable(CapabilityAvailability.Unknown, timestamp, "陀螺仪需要逐设备通道，尚未接入"),
-            InputCatalog.InputHapticsAvailable.Unavailable(CapabilityAvailability.Unknown, timestamp, "振动需要逐设备通道，尚未接入"),
-            InputCatalog.InputGyroscopeDevices.Observe(Array.AsReadOnly(Enumerable.Range(1, controllers)
-                .Select(index => new InputDeviceFeature($"Linux 手柄 {index}", false)).ToArray()), timestamp, source),
-            InputCatalog.InputHapticsDevices.Unavailable(CapabilityAvailability.Unknown, timestamp,
-                "Linux 振动能力需要 evdev force-feedback 权限"),
-        });
-
-        static bool InternalKeyboardLikely() => Environment.GetEnvironmentVariable("DISPLAY") is not null
-            || Environment.GetEnvironmentVariable("WAYLAND_DISPLAY") is not null;
-    }
+    private static IReadOnlyList<ICapability> CollectLinux(DateTimeOffset timestamp) =>
+        LinuxInputProbe.Project(LinuxInputProbe.Read(), timestamp);
 
     private static System.Collections.ObjectModel.ReadOnlyCollection<ICapability> Unavailable(DateTimeOffset timestamp, string reason) =>
         Array.AsReadOnly(InputCatalog.Definitions().Where(static definition => !definition.Id.StartsWith("input.usage.", StringComparison.Ordinal))

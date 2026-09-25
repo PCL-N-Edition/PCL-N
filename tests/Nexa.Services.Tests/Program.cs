@@ -83,6 +83,8 @@ internal static partial class Program
         ("account projection reads the roster", AccountProjectionReadsTheRoster),
         ("derivation pass computes cross-provider facts", DerivationPassComputesCrossProviderFacts),
         ("form factor heuristic classifies the device", FormFactorHeuristicClassifiesTheDevice),
+        ("Linux input uses capability bits and preserves unknown", () => { LinuxInputUsesCapabilityBitsAndPreservesUnknown(); return ValueTask.CompletedTask; }),
+        ("native input probe enumerates without hooks", NativeInputProbeEnumeratesWithoutHooks),
         ("input usage is session local and explicit", Sync(InputUsageIsSessionLocalAndExplicit)),
         ("estimator preflight and remediation remain layered", Sync(EstimatorPreflightAndRemediationRemainLayered)),
         ("remediation actions require exact handlers", RemediationActionsRequireExactHandlers),
