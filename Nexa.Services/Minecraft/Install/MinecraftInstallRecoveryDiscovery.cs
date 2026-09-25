@@ -63,6 +63,12 @@ public sealed partial class MinecraftInstallService
             {
                 if (!Path.IsPathFullyQualified(requested)) throw new ArgumentException("安装恢复需要绝对目录路径。");
                 string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(requested));
+                foreach (var pack in await ReadModpackJobsAsync(root, token).ConfigureAwait(false))
+                {
+                    lock (_executionGate) if (_stopping) return XsrResult.Failure(XsrRuntimeErrors.Cancelled());
+                    var result = await InstallModpackCoreAsync(pack.Command, token, pack).ConfigureAwait(false);
+                    if (!result.IsSuccess) Fail("整合包未能恢复：" + result.Error?.Message);
+                }
                 foreach (bool newInstallation in new[] { false, true })
                 {
                     string directory = Path.Combine(root, newInstallation ? ".nexa-install-jobs" : ".nexa-modify"); RecoveryBlobStore.CheckLinks(directory);

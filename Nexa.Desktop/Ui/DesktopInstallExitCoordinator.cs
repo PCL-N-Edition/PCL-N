@@ -21,7 +21,8 @@ internal sealed class DesktopInstallExitCoordinator(
         var active = store.ReadCollection<TaskCenterEntry>(store.Resolve(TaskCenterStateContract.EntriesKey)).Items
             .Where(item => !item.IsTerminal && (item.TaskId.StartsWith("install:", StringComparison.Ordinal)
                 || item.TaskId.StartsWith("install-recovery:", StringComparison.Ordinal)
-                || item.TaskId.StartsWith("java-install:", StringComparison.Ordinal))).ToArray();
+                || item.TaskId.StartsWith("java-install:", StringComparison.Ordinal)
+                || item.TaskId.StartsWith("modpack:", StringComparison.Ordinal))).ToArray();
         if (active.Length == 0 && !_stopFailed) return true;
         if (Interlocked.Exchange(ref _busy, 1) != 0) return false;
         if (active.Length == 0 && _stopFailed)

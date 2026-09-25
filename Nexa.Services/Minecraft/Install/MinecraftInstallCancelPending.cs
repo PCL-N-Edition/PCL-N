@@ -9,6 +9,15 @@ public sealed partial class MinecraftInstallService
         if (roots.Length > 64) throw new InvalidDataException("恢复目录过多，未完成全部撤回。");
         int visited = 0;
         foreach (string root in roots)
+        {
+            using var operation = await InstanceRecoveryOperationGate.EnterOperationAsync(root, CancellationToken.None).ConfigureAwait(false);
+            foreach (var pack in await ReadModpackJobsAsync(root, CancellationToken.None).ConfigureAwait(false))
+            {
+                using var lease = pack.Acquire();
+                await pack.CancelAsync().ConfigureAwait(false);
+            }
+        }
+        foreach (string root in roots)
             foreach (bool newInstallation in new[] { false, true })
             {
                 string directory = Path.Combine(root, newInstallation ? ".nexa-install-jobs" : ".nexa-modify");

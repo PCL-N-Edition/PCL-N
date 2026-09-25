@@ -13,43 +13,78 @@ public sealed partial class MinecraftInstallService
     public Task<XsrResult<MinecraftInstallResult>> InstallModpackAsync(MinecraftModpackCommand command, CancellationToken token = default) =>
         Task.Run(() => InstallModpackCoreAsync(command, token), token);
 
-    private async Task<XsrResult<MinecraftInstallResult>> InstallModpackCoreAsync(MinecraftModpackCommand command, CancellationToken token)
+    private async Task<XsrResult<MinecraftInstallResult>> InstallModpackCoreAsync(MinecraftModpackCommand command, CancellationToken token, ModpackInstallJournal? saved = null)
     {
+        var execution = RegisterExecution(new(command.RootDirectory, command.Pack.Game, InstanceName: command.Pack.InstanceId));
         using var task = _tasks.Begin(new("modpack:" + Guid.NewGuid().ToString("N"), "安装 " + command.Pack.Name, StagePlan));
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, task.CancellationToken);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, task.CancellationToken, execution.Token);
         token = linked.Token;
-        string? stage = null;
+        ModpackInstallJournal? journal = saved;
+        FileStream? lease = null;
         try
         {
             string root = MinecraftLibraryService.NormalizeDirectory(command.RootDirectory);
             using var recoveryOperation = await Management.InstanceRecoveryOperationGate.EnterOperationAsync(root, token).ConfigureAwait(false);
             MinecraftModpackArchive.CheckPath(root);
-            stage = ForgeInstallService.Contained(root, ".nexa-pack-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(stage);
-            string archivePath = Path.Combine(stage, "source.pack");
-            MinecraftModpackArchive.CheckPath(command.Pack.Path);
-            if (new FileInfo(command.Pack.Path).Length > MinecraftModpackArchive.MaxArchive) throw new InvalidDataException("整合包过大。");
-            await using (var input = File.OpenRead(command.Pack.Path))
-            await using (var output = File.Create(archivePath))
-                await ArchiveReadBudget.CopyAsync(input, output, input.Length, MinecraftModpackArchive.MaxArchive,
-                    new ArchiveReadBudget(MinecraftModpackArchive.MaxArchive), token).ConfigureAwait(false);
+            if (journal is null && Path.Exists(ForgeInstallService.Contained(root, "versions/" + command.Pack.InstanceId)))
+                throw new IOException("此整合包版本已经存在，未覆盖任何文件。");
+            journal ??= await ModpackInstallJournal.CreateAsync(root, command, token).ConfigureAwait(false);
+            lease = journal.Acquire();
+            if (journal.Canceled) throw new InvalidOperationException("整合包安装已取消。");
+            if (journal.Complete) return XsrResult.Success(new MinecraftInstallResult(command.Pack.InstanceId, journal.Destination));
+            if (journal.Prepared)
+            {
+                ReadyExecution(execution, journal.Stage);
+                await journal.PublishAsync(token).ConfigureAwait(false);
+                task.Complete("整合包已安装"); Installed?.Invoke(root);
+                return XsrResult.Success(new MinecraftInstallResult(command.Pack.InstanceId, journal.Destination));
+            }
+            string archivePath = journal.Archive;
+            if (!File.Exists(archivePath))
+            {
+                MinecraftModpackArchive.CheckPath(command.Pack.Path);
+                if (new FileInfo(command.Pack.Path).Length > MinecraftModpackArchive.MaxArchive) throw new InvalidDataException("整合包过大。");
+                await using (var input = File.OpenRead(command.Pack.Path))
+                await using (var output = File.Create(archivePath + ".part"))
+                {
+                    await ArchiveReadBudget.CopyAsync(input, output, input.Length, MinecraftModpackArchive.MaxArchive,
+                        new ArchiveReadBudget(MinecraftModpackArchive.MaxArchive), token).ConfigureAwait(false);
+                    await output.FlushAsync(token).ConfigureAwait(false); output.Flush(true);
+                }
+                File.Move(archivePath + ".part", archivePath);
+            }
             var plan = await MinecraftModpackArchive.ReadAsync(archivePath, token).ConfigureAwait(false);
             if (plan.Preview != command.Pack with { Path = archivePath }) throw new InvalidDataException("整合包已变化，请重新拖入。");
+            ReadyExecution(execution, journal.Stage);
             var pack = plan.Preview;
             string destination = ForgeInstallService.Contained(root, "versions/" + pack.InstanceId);
             if (Path.Exists(destination)) throw new IOException("此整合包版本已经存在，未覆盖任何文件。");
-            string buildRoot = Path.Combine(stage, "game");
+            string buildRoot = journal.Game;
             Directory.CreateDirectory(buildRoot);
-            var files = plan.Files.Where(file => command.IncludeOptional || !file.Optional).ToList();
-            foreach (var reference in plan.CurseFiles.Where(file => command.IncludeOptional || !file.Optional))
-                files.Add(await ResolveCurseForgePackFileAsync(reference, token).ConfigureAwait(false));
+            var pinnedFiles = await journal.ReadFilesAsync(token).ConfigureAwait(false);
+            var files = pinnedFiles?.ToList() ?? plan.Files.Where(file => command.IncludeOptional || !file.Optional).ToList();
+            if (pinnedFiles is null)
+            {
+                foreach (var reference in plan.CurseFiles.Where(file => command.IncludeOptional || !file.Optional))
+                    files.Add(await ResolveCurseForgePackFileAsync(reference, token).ConfigureAwait(false));
+            }
+            if (files.Count > 100000 || files.Any(file => file.Size is < 0 or > MinecraftModpackArchive.MaxFile)) throw new InvalidDataException("整合包文件大小无效。");
             if (files.Sum(file => file.Size) > MinecraftModpackArchive.MaxExpanded
                 || files.Select(file => file.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count() != files.Count)
                 throw new InvalidDataException("整合包包含重复文件或总大小超过限制。");
-            foreach (var file in files) ValidatePackDestination(file.Path, pack.InstanceId);
+            foreach (var file in files)
+            {
+                ValidatePackDestination(file.Path, pack.InstanceId);
+                MinecraftModpackArchive.RequireHash(file.Sha1, 40);
+                if (file.Sha512 is not null) MinecraftModpackArchive.RequireHash(file.Sha512, 128);
+                if (file.Urls is not { Length: > 0 and <= 16 }) throw new InvalidDataException("整合包下载源无效。");
+                foreach (string url in file.Urls) MinecraftModpackArchive.DownloadUrl(url);
+            }
+            if (pinnedFiles is null) await journal.SaveFilesAsync(files.ToArray(), token).ConfigureAwait(false);
             // Reuse the same manifest, Java/loader installer, libraries, assets and download pipeline.
             var installed = await RunAsync(new(buildRoot, pack.Game, pack.Loader, pack.Build, InstanceName: pack.InstanceId)
-            { PreparingEdit = true, ReuseRoot = root, ModsRelativeDirectory = "versions/" + pack.InstanceId + "/mods" }, task, token).ConfigureAwait(false);
+            { PreparingEdit = true, ReuseRoot = root, ModsRelativeDirectory = "versions/" + pack.InstanceId + "/mods" }, task, token,
+                new PersistentInstallMetadataSource(buildRoot, _metadata, journal), deferCompletion: true).ConfigureAwait(false);
             using var packHttp = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(5) };
             int completed = 0;
             var expandedBudget = new ArchiveReadBudget(MinecraftModpackArchive.MaxExpanded);
@@ -58,8 +93,8 @@ public sealed partial class MinecraftInstallService
                 token.ThrowIfCancellationRequested();
                 string target = ForgeInstallService.Contained(installed.InstanceDirectory, file.Path);
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                bool verified = false;
-                foreach (string url in file.Urls)
+                bool verified = File.Exists(target) && await VerifyPackFileAsync(target, file, token).ConfigureAwait(false);
+                foreach (string url in verified ? [] : file.Urls)
                 {
                     TryDelete(target);
                     var request = new DownloadRequest
@@ -98,6 +133,7 @@ public sealed partial class MinecraftInstallService
                 token.ThrowIfCancellationRequested();
                 if (file.StartsWith(installed.InstanceDirectory + Path.DirectorySeparatorChar, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) continue;
                 string relative = Path.GetRelativePath(buildRoot, file);
+                if (relative.Replace('\\', '/').Split('/').Any(part => part is ".task" or ".nexa-install" or ".nexa-java-jobs" or ".nexa-java.lock")) continue;
                 string target = ForgeInstallService.Contained(root, relative);
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                 MinecraftModpackArchive.CheckPath(Path.GetDirectoryName(target)!);
@@ -117,24 +153,24 @@ public sealed partial class MinecraftInstallService
                 }
                 finally { TryDelete(temporary); }
             }
-            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-            MinecraftModpackArchive.CheckPath(root);
-            MinecraftModpackArchive.CheckPath(Path.GetDirectoryName(destination)!);
-            token.ThrowIfCancellationRequested();
-            Directory.Move(installed.InstanceDirectory, destination);
+            await journal.PrepareAsync(token).ConfigureAwait(false);
+            await journal.PublishAsync(token).ConfigureAwait(false);
             task.Complete("整合包已安装");
             Installed?.Invoke(root);
             return XsrResult.Success(new MinecraftInstallResult(pack.InstanceId, destination));
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
-        { task.Canceled(); return XsrResult.Failure<MinecraftInstallResult>(XsrRuntimeErrors.Cancelled()); }
+        {
+            if (task.CancellationToken.IsCancellationRequested && journal is not null) { await journal.CancelAsync().ConfigureAwait(false); task.Canceled(); }
+            else task.Paused();
+            return XsrResult.Failure<MinecraftInstallResult>(XsrRuntimeErrors.Cancelled());
+        }
         catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)
         { task.Fail(error.Message); return XsrResult.Failure<MinecraftInstallResult>(MinecraftErrors.InvalidRequest(error.Message)); }
         finally
         {
-            if (stage is not null && Directory.Exists(stage))
-                try { MinecraftModpackArchive.CheckPath(stage); Directory.Delete(stage, true); }
-                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+            lease?.Dispose();
+            FinishExecution(execution);
         }
     }
 

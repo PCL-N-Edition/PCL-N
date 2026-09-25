@@ -53,7 +53,9 @@ public sealed partial class ForgeInstallService(DownloadService downloads, HttpC
         try
         {
             string installer = Path.Combine(stage, "installer.jar");
-            using var installerCache = File.Exists(Path.Combine(root, InstallTaskJournal.DirectoryName, "plan.json"))
+            using var installerCache = (File.Exists(Path.Combine(root, InstallTaskJournal.DirectoryName, "plan.json"))
+                || Path.GetFileName(root) == "game" && Directory.GetParent(root)?.Parent?.Name == ModpackInstallJournal.DirectoryName
+                    && File.Exists(Path.Combine(Directory.GetParent(root)!.FullName, "intent.json")))
                 ? new LoaderInstallerCache(root, request) : null;
             if (installerCache is null || !await installerCache.RestoreAsync(installer, token).ConfigureAwait(false))
             {

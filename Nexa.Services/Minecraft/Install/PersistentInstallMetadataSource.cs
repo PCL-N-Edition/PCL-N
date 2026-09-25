@@ -7,7 +7,7 @@ using Nexa.Services.Minecraft.Management;
 namespace Nexa.Services.Minecraft.Install;
 
 /// <summary>Task-local, immutable metadata. Corruption stops recovery instead of silently fetching new facts.</summary>
-internal sealed class PersistentInstallMetadataSource(string stage, IMinecraftInstallMetadataSource source) : IMinecraftInstallMetadataSource
+internal sealed class PersistentInstallMetadataSource(string stage, IMinecraftInstallMetadataSource source, ModpackInstallJournal? pack = null) : IMinecraftInstallMetadataSource
 {
     private const int MaxRecordBytes = 16 * 1024 * 1024;
     private const long MaxCacheBytes = 64L * 1024 * 1024;
@@ -52,8 +52,16 @@ internal sealed class PersistentInstallMetadataSource(string stage, IMinecraftIn
     private async Task<JsonObject> GetAsync(string request, Func<CancellationToken, Task<JsonObject>> fetch, CancellationToken token)
     {
         if (request.Length > 16384) throw new InvalidDataException("安装元数据请求过长。");
-        string root = Directory.GetParent(stage)?.Parent?.FullName ?? throw new InvalidDataException("安装任务目录无效。");
-        _ = await InstallTaskJournal.ReadAsync(root, stage, token).ConfigureAwait(false);
+        if (pack is null)
+        {
+            string root = Directory.GetParent(stage)?.Parent?.FullName ?? throw new InvalidDataException("安装任务目录无效。");
+            _ = await InstallTaskJournal.ReadAsync(root, stage, token).ConfigureAwait(false);
+        }
+        else
+        {
+            if (!MinecraftLibraryService.PathComparer.Equals(stage, pack.Game)) throw new InvalidDataException("整合包缓存目录无效。");
+            _ = await ModpackInstallJournal.OpenAsync(pack.Command.RootDirectory, pack.Stage, token).ConfigureAwait(false);
+        }
         string directory = Path.Combine(stage, InstallTaskJournal.DirectoryName, "metadata");
         RecoveryBlobStore.CheckLinks(directory); Directory.CreateDirectory(directory);
         string key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request)));

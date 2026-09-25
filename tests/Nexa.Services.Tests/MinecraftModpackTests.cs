@@ -78,7 +78,7 @@ internal static partial class Program
                     AssertFalse(result.IsSuccess);
                     AssertFalse(Directory.Exists(Path.Combine(root, "versions", preview.InstanceId)));
                     AssertEqual(0, fixture.InstalledRoots.Count);
-                    AssertEqual(0, Directory.GetDirectories(root, ".nexa-pack-*").Length);
+                    AssertEqual(0, Directory.GetDirectories(root, ".nexa-pack-*").Count(path => Path.GetFileName(path) != ".nexa-pack-jobs"));
                 }
             }
         }
@@ -128,7 +128,7 @@ internal static partial class Program
                 AssertFalse(File.Exists(Path.Combine(instance, "server.txt")));
                 AssertEqual("client", await File.ReadAllTextAsync(Path.Combine(instance, "config", "test.txt")));
                 AssertTrue((await new MinecraftInstanceMetadataStore().LoadAsync(instance)).InstanceIsolation);
-                AssertEqual(0, Directory.GetDirectories(root, ".nexa-pack-*").Length);
+                AssertEqual(0, Directory.GetDirectories(root, ".nexa-pack-*").Count(path => Path.GetFileName(path) != ".nexa-pack-jobs"));
                 AssertFalse((await fixture.Install.InstallModpackAsync(new(preview, root))).IsSuccess);
             }
             AssertEqual(2, fixture.InstalledRoots.Count);
@@ -149,7 +149,7 @@ internal static partial class Program
             AssertFalse(result.IsSuccess);
             AssertFalse(Directory.Exists(Path.Combine(root, "versions", preview.InstanceId)));
             AssertEqual(0, fixture.InstalledRoots.Count);
-            AssertEqual(0, Directory.GetDirectories(root, ".nexa-pack-*").Length);
+            AssertEqual(0, Directory.GetDirectories(root, ".nexa-pack-*").Count(path => Path.GetFileName(path) != ".nexa-pack-jobs"));
             string malicious = Path.Combine(temporary, "escape.zip");
             WriteLocalJar(malicious, ("modrinth.index.json", MrpackIndex().ToJsonString()), ("overrides/../escape.txt", "bad"));
             try { await MinecraftModpackArchive.InspectAsync(malicious); throw new InvalidOperationException("Traversal accepted."); }
@@ -193,7 +193,7 @@ internal static partial class Program
                     AssertFalse(File.Exists(Path.Combine(instance, "mods", "textures.zip")));
                 }
                 else AssertFalse(Directory.Exists(instance));
-                AssertEqual(0, Directory.GetDirectories(root, ".nexa-pack-*").Length);
+                AssertEqual(0, Directory.GetDirectories(root, ".nexa-pack-*").Count(path => Path.GetFileName(path) != ".nexa-pack-jobs"));
             }
         }
         finally { Directory.Delete(temporary, true); }
@@ -255,10 +255,113 @@ internal static partial class Program
                 AssertTrue(!result.IsSuccess, scenario);
                 AssertTrue(!Directory.Exists(Path.Combine(root, "versions", preview.InstanceId)), scenario);
                 AssertEqual(0, fixture.InstalledRoots.Count);
-                AssertEqual(0, Directory.GetDirectories(root, ".nexa-pack-*").Length);
-                if (scenario == "cancel") AssertEqual(TaskCenterEntryState.Canceled, fixture.Entry().State);
+                AssertEqual(0, Directory.GetDirectories(root, ".nexa-pack-*").Count(path => Path.GetFileName(path) != ".nexa-pack-jobs"));
+                if (scenario == "cancel") AssertEqual(TaskCenterEntryState.Paused, fixture.Entry().State);
                 if (scenario == "conflict") AssertEqual("existing user content", await File.ReadAllTextAsync(shared));
             }
+        }
+        finally { Directory.Delete(temporary, true); }
+    }
+
+    private static async ValueTask ModpackRecoveryUsesPinnedArchiveAndReusesVerifiedDownloads()
+    {
+        string temporary = Path.Combine(Path.GetTempPath(), "nexa-pack-resume-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporary);
+        try
+        {
+            string source = Path.Combine(temporary, "pack.mrpack"), root = Path.Combine(temporary, "game");
+            Directory.CreateDirectory(root);
+            WriteLocalJar(source, ("modrinth.index.json", MrpackIndex().ToJsonString()), ("overrides/config/test.txt", "preserved"));
+            var preview = await MinecraftModpackArchive.InspectAsync(source);
+            using var cancellation = new CancellationTokenSource();
+            int downloads = 0;
+            using (var fixture = new InstallFixture(PackMetadata(), connectionFactory: url =>
+                url.StartsWith("https://cdn.modrinth.com/", StringComparison.Ordinal) && Interlocked.Increment(ref downloads) == 2
+                    ? new CancelPackConnection(cancellation) : new ServingConnection(PayloadFor(url))))
+            {
+                AssertFalse((await fixture.Install.InstallModpackAsync(new(preview, root, true), cancellation.Token)).IsSuccess);
+                AssertFalse(Directory.Exists(Path.Combine(root, "versions", preview.InstanceId)));
+            }
+            File.Delete(source);
+            var metadata = new FakeMetadata(); int resumedDownloads = 0;
+            using var resumed = new InstallFixture(metadata, connectionFactory: url =>
+            {
+                if (url.StartsWith("https://cdn.modrinth.com/", StringComparison.Ordinal)) Interlocked.Increment(ref resumedDownloads);
+                return new ServingConnection(PayloadFor(url));
+            });
+            var result = await resumed.Install.RecoverPendingAsync(new([root]));
+            AssertTrue(result.IsSuccess, result.Error?.Message ?? "recovery failed");
+            AssertEqual(0, metadata.VanillaReads);
+            AssertEqual(1, resumedDownloads);
+            AssertEqual("preserved", await File.ReadAllTextAsync(Path.Combine(root, "versions", preview.InstanceId, "config", "test.txt")));
+        }
+        finally { Directory.Delete(temporary, true); }
+    }
+
+    private static async ValueTask ModpackPublicationRecoversLostCompletionAndProtectsChangedFiles()
+    {
+        string temporary = Path.Combine(Path.GetTempPath(), "nexa-pack-publish-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporary);
+        try
+        {
+            string source = Path.Combine(temporary, "pack.mrpack");
+            WriteLocalJar(source, ("modrinth.index.json", MrpackIndex().ToJsonString()));
+            var preview = await MinecraftModpackArchive.InspectAsync(source);
+            foreach (string scenario in new[] { "published", "changed", "cancel" })
+            {
+                string root = Path.Combine(temporary, scenario); Directory.CreateDirectory(root);
+                var journal = await ModpackInstallJournal.CreateAsync(root, new(preview, root), CancellationToken.None);
+                Directory.CreateDirectory(journal.Instance);
+                await File.WriteAllTextAsync(Path.Combine(journal.Instance, preview.InstanceId + ".json"), "{}");
+                await journal.PrepareAsync(CancellationToken.None);
+                if (scenario == "cancel")
+                {
+                    await journal.CancelAsync();
+                    AssertTrue(journal.Canceled);
+                    AssertFalse(Directory.Exists(journal.Destination));
+                    continue;
+                }
+                Directory.CreateDirectory(Path.GetDirectoryName(journal.Destination)!);
+                Directory.Move(journal.Instance, journal.Destination);
+                var reopened = await ModpackInstallJournal.OpenAsync(root, journal.Stage, CancellationToken.None);
+                if (scenario == "changed")
+                {
+                    await File.WriteAllTextAsync(Path.Combine(journal.Destination, preview.InstanceId + ".json"), "changed");
+                    try { await reopened.CancelAsync(); throw new InvalidOperationException("Changed publication accepted."); }
+                    catch (InvalidDataException) { }
+                    AssertFalse(reopened.Complete);
+                    AssertEqual("changed", await File.ReadAllTextAsync(Path.Combine(journal.Destination, preview.InstanceId + ".json")));
+                }
+                else
+                {
+                    await reopened.CancelAsync();
+                    AssertTrue(reopened.Complete); AssertFalse(reopened.Canceled);
+                    AssertTrue(Directory.Exists(reopened.Destination));
+                }
+            }
+        }
+        finally { Directory.Delete(temporary, true); }
+    }
+
+    private static async ValueTask CancelQueuedModpackPreventsStartupRecovery()
+    {
+        string temporary = Path.Combine(Path.GetTempPath(), "nexa-pack-queue-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporary);
+        try
+        {
+            string source = Path.Combine(temporary, "pack.mrpack"), root = Path.Combine(temporary, "game"); Directory.CreateDirectory(root);
+            WriteLocalJar(source, ("modrinth.index.json", MrpackIndex().ToJsonString()));
+            var preview = await MinecraftModpackArchive.InspectAsync(source);
+            using var cancellation = new CancellationTokenSource();
+            using (var fixture = new InstallFixture(PackMetadata(), connectionFactory: url =>
+                url.StartsWith("https://cdn.modrinth.com/", StringComparison.Ordinal) ? new CancelPackConnection(cancellation) : new ServingConnection(PayloadFor(url))))
+            {
+                AssertFalse((await fixture.Install.InstallModpackAsync(new(preview, root), cancellation.Token)).IsSuccess);
+                AssertTrue((await fixture.Install.StopAsync(new(false))).IsSuccess);
+            }
+            using var restarted = new InstallFixture(new FakeMetadata());
+            AssertTrue((await restarted.Install.RecoverPendingAsync(new([root]))).IsSuccess);
+            AssertFalse(Directory.Exists(Path.Combine(root, "versions", preview.InstanceId)));
         }
         finally { Directory.Delete(temporary, true); }
     }
@@ -276,3 +379,4 @@ internal static partial class Program
         public ValueTask StopAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
     }
 }
+
