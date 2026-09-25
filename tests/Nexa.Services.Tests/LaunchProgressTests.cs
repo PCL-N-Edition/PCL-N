@@ -652,6 +652,7 @@ internal static partial class Program
             MinecraftLaunchCoordinator.GameWindowWaitResult wait = await MinecraftLaunchCoordinator.WaitForGameWindowAsync(
                 new UnsupportedWindowProbe(), null, session, CancellationToken.None);
             AssertEqual(MinecraftLaunchCoordinator.GameWindowWaitResult.Unsupported, wait);
+            AssertFalse(session.Snapshot.GameWindowConfirmed);
             foreach (Exception decorationFailure in new Exception[] { new PlatformNotSupportedException("COM unavailable"), new InvalidOperationException("decoration failed") })
             {
                 bool invoked = false;
@@ -663,6 +664,7 @@ internal static partial class Program
                     });
                 AssertTrue(invoked);
                 AssertEqual(MinecraftLaunchCoordinator.GameWindowWaitResult.Visible, wait);
+                AssertTrue(session.Snapshot.GameWindowConfirmed);
                 AssertFalse(port.LastProcess!.HasExited);
             }
             AssertTrue(System.Diagnostics.Stopwatch.GetElapsedTime(startedAt) < TimeSpan.FromSeconds(5),

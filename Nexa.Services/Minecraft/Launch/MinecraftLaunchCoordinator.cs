@@ -677,6 +677,7 @@ public sealed class MinecraftLaunchCoordinator
                 .ConfigureAwait(false);
             if (probe == MinecraftWindowProbeResult.Visible)
             {
+                session.ConfirmGameWindow();
                 log?.Info("Launch", $"Game window confirmed pid={processId}.");
                 // The window exists now: the host detaches it from the launcher's taskbar group
                 // while the game keeps its own icon. Calling earlier races window creation.

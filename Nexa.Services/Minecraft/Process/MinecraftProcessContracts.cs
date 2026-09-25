@@ -28,6 +28,7 @@ public sealed record MinecraftProcessSnapshot(
 {
     public string InstanceDirectory { get; init; } = string.Empty;
     public string GameDirectory { get; init; } = string.Empty;
+    public bool GameWindowConfirmed { get; init; }
 }
 
 public interface IMinecraftProcessPort
@@ -156,6 +157,14 @@ public sealed class MinecraftProcessSession : IAsyncDisposable
     }
 
     public MinecraftProcessSnapshot Snapshot { get { lock (_gate) return _snapshot; } }
+    internal void ConfirmGameWindow()
+    {
+        // Update only the session fact. The terminal lifecycle publication carries it;
+        // no extra Running notification may race and overwrite a terminal notification.
+        lock (_gate)
+            if (_snapshot.State is MinecraftProcessState.Created or MinecraftProcessState.Running)
+                _snapshot = _snapshot with { GameWindowConfirmed = true };
+    }
     internal MinecraftProcessSnapshot CreatedSnapshot => _createdSnapshot;
     public System.Diagnostics.Process Process => _process;
     public event Action<MinecraftProcessSnapshot>? Changed;

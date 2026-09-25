@@ -4,6 +4,7 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("recovery baselines require a confirmed successful session", Sync(RecoveryBaselineRequiresConfirmedSuccess)),
         ("mod toggles guard files and running directory identities", ModTogglePreservesFilesAndGuardsIdentity),
         ("instance content enumeration is bounded and cancellable", Sync(InstanceContentIsBoundedAndCancellable)),
         ("loader installs are independent unless opted into inheritance", LoaderInstallsAreIndependentUnlessOptedIn),
