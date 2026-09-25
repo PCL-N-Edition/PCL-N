@@ -16,7 +16,10 @@ executable, published Nexa.Jvm.Host executable, a nonexistent output directory, 
 seconds (60..1800) to the generated apphost. The harness verifies the pack before inspecting Java,
 uses isolated game storage, drains Jvm.Host sample windows, and records terminal/continuity/forced-stop
 status in `run.json` alongside `samples.csv`. It deliberately sets `trainingEligible=false`: phase
-adapters, full hardware provenance, mod-inventory artifacts, and real-pack validation are still pending.
+adapters, full hardware provenance, and real-pack validation are still pending. `context.json` carries
+the existing Jvm.Host context's loader/components and bounded mod IDs, versions and dependency ranges,
+including explicit unknown/incomplete flags. No context is represented as unavailable, not an empty
+complete inventory. Nested JAR limitations of the shared reader remain unchanged.
 The created `game` directory is local scratch data and must not be uploaded as a CI artifact.
 `eng/xsr/Test-MinecraftBenchmark.ps1` checks argument/hash/storage boundaries without downloading games.
 
@@ -25,7 +28,9 @@ The archive's published SHA-512 and computed SHA-256 are recorded in `eng/benchm
 The Actions job uses a non-root, read-only Linux container, software rendering, two CPUs and a 6 GiB
 memory cap. It mounts only published tools, Java, the pack and a fresh output directory, without CI
 credentials. The container is stopped before a separate bounded no-follow collector normalizes the
-two allowed measurement files. No recursive game-directory/log upload is allowed. The job can be
+three allowed measurement files. The context has a 16 MiB actual-read ceiling, up to 4096 mod entries,
+and explicit metadata allowlists; the collector strips extra fields and validates identifiers/ranges.
+No recursive game-directory/log upload is allowed. The job can be
 triggered manually and runs on changes to its reviewed catalog/workflow; there is no nightly large
 matrix yet. Container/runner performance is not a hardware-rendered player baseline.
 

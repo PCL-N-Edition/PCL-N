@@ -5,6 +5,7 @@ import io
 import json
 import math
 import os
+import re
 from pathlib import Path
 import stat
 import sys
@@ -37,14 +38,14 @@ def download(target):
         output.write(data)
 
 
-def read_regular(directory, name):
+def read_regular(directory, name, limit=65536):
     fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
     with os.fdopen(fd, "rb") as stream:
         info = os.fstat(stream.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_size > 65536:
+        if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
             raise ValueError("Not a bounded regular artifact")
-        data = stream.read(65537)
-        if len(data) > 65536:
+        data = stream.read(limit + 1)
+        if len(data) > limit:
             raise ValueError("Artifact grew beyond limit")
         return data.decode("utf-8")
 
@@ -88,18 +89,54 @@ def normalize(document, csv_text):
     return result, output.getvalue()
 
 
+def normalize_context(document):
+    if document.get("schema") != 1 or type(document.get("available")) is not bool:
+        raise ValueError("Invalid context schema")
+    if not document["available"]:
+        return {"schema": 1, "available": False}
+    def matches(pattern, value):
+        return isinstance(value, str) and re.fullmatch(pattern, value) is not None
+    identity = r"[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,95}"
+    version = r"[a-zA-Z0-9][a-zA-Z0-9_.+\-]{0,95}"
+    dependency = r"[a-zA-Z0-9_.+*<>=~^|, ()\[\]\-]{1,192}"
+    components = document.get("components")
+    kinds = {"Vanilla", "Forge", "NeoForge", "Fabric", "LegacyFabric", "Quilt", "LiteLoader", "Cleanroom", "LabyMod", "OptiFine", "FabricApi", "Qsl", "OptiFabric"}
+    if (not matches(version, document.get("loaderVersion")) or type(document.get("complete")) is not bool
+        or type(document.get("unknownFiles")) is not int or not 0 <= document["unknownFiles"] <= 4096
+        or not isinstance(components, dict) or len(components) > 16
+        or any(key not in kinds or not matches(version, value) for key, value in components.items())):
+        raise ValueError("Invalid component context")
+    mods = document.get("mods")
+    if not isinstance(mods, list) or len(mods) > 4096:
+        raise ValueError("Invalid mod inventory")
+    output = []
+    formats = {"fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml", "META-INF/neoforge.mods.toml", "mcmod.info"}
+    for item in mods:
+        if (not isinstance(item, dict) or not matches(identity, item.get("id")) or not matches(version, item.get("version"))
+            or item.get("format") not in formats or type(item.get("enabled")) is not bool
+            or type(item.get("dependenciesComplete")) is not bool or not isinstance(item.get("dependencies"), dict)
+            or len(item["dependencies"]) > 8
+            or any(not matches(identity, key) or not matches(dependency, value) for key, value in item["dependencies"].items())):
+            raise ValueError("Invalid mod context")
+        output.append({key: item[key] for key in ("id", "version", "format", "enabled", "dependenciesComplete", "dependencies")})
+    return {"schema": 1, "available": True, "loaderVersion": document["loaderVersion"], "components": components,
+            "complete": document["complete"], "unknownFiles": document["unknownFiles"], "mods": output}
+
+
 def collect(source, destination):
     # The container has already stopped. Neither artifact paths nor arbitrary strings supplied by
     # mod code are forwarded to the artifact uploader. No recursive directory upload is permitted.
     directory = os.open(source, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         result, samples = normalize(json.loads(read_regular(directory, "run.json")), read_regular(directory, "samples.csv"))
+        context = normalize_context(json.loads(read_regular(directory, "context.json", 16 * 1024 * 1024)))
     finally:
         os.close(directory)
     output = Path(destination)
     output.mkdir(exist_ok=False)
     (output / "run.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     (output / "samples.csv").write_text(samples, encoding="utf-8")
+    (output / "context.json").write_text(json.dumps(context, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

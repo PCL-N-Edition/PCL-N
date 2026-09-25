@@ -140,8 +140,36 @@ internal static class Program
             json.WriteString("scenario", "unverified-client"); json.WriteBoolean("trainingEligible", false);
             json.WriteString("exclusionReason", "World phases and hardware provenance have not been verified.");
             json.WriteEndObject(); await json.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+            var context = store.ReadCollection<JvmRunContext>(store.Resolve(JvmHostStateContract.ContextsKey), CancellationToken.None)
+                .Items.SingleOrDefault(item => item.SessionId == session.Snapshot.SessionId);
+            await WriteContextAsync(Path.Combine(output, "context.json"), context).ConfigureAwait(false);
         }
         Console.WriteLine("Local benchmark artifacts saved; scenario is unverified and excluded from training.");
         return terminal && contiguous && count > 0 && (forced || session.Snapshot.ExitCode == 0) ? 0 : 2;
+    }
+
+    private static async Task WriteContextAsync(string path, JvmRunContext? context)
+    {
+        await using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+        using var writer = new Utf8JsonWriter(file);
+        writer.WriteStartObject(); writer.WriteNumber("schema", 1); writer.WriteBoolean("available", context is not null);
+        if (context is not null)
+        {
+            writer.WriteString("loaderVersion", context.LoaderVersion);
+            writer.WriteBoolean("complete", context.Inventory.Complete); writer.WriteNumber("unknownFiles", context.Inventory.UnknownFiles);
+            writer.WriteStartObject("components");
+            foreach (var pair in context.Components.OrderBy(item => item.Key, StringComparer.Ordinal)) writer.WriteString(pair.Key, pair.Value);
+            writer.WriteEndObject(); writer.WriteStartArray("mods");
+            foreach (var mod in context.Inventory.Mods.OrderBy(item => item.Id, StringComparer.Ordinal).ThenBy(item => item.Version, StringComparer.Ordinal))
+            {
+                writer.WriteStartObject(); writer.WriteString("id", mod.Id); writer.WriteString("version", mod.Version);
+                writer.WriteString("format", mod.Format); writer.WriteBoolean("enabled", mod.Enabled);
+                writer.WriteBoolean("dependenciesComplete", mod.DependenciesComplete); writer.WriteStartObject("dependencies");
+                foreach (var pair in mod.Dependencies.OrderBy(item => item.Key, StringComparer.Ordinal)) writer.WriteString(pair.Key, pair.Value);
+                writer.WriteEndObject(); writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+        }
+        writer.WriteEndObject(); await writer.FlushAsync().ConfigureAwait(false);
     }
 }

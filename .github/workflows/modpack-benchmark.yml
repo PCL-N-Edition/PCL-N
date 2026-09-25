@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: modpack-benchmark-pilot
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   pilot:

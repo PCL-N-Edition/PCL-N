@@ -33,6 +33,24 @@ class ArtifactBoundaryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 pilot.normalize(self.fixture(), source.replace("1024", bad))
 
+    def test_context_keeps_mod_identity_and_marks_unknowns(self):
+        mod = dict(id="sodium", version="0.6.0", format="fabric.mod.json", enabled=True,
+                   dependenciesComplete=False, dependencies={"minecraft": "~1.21.1"}, filename="private.jar")
+        context = dict(schema=1, available=True, loaderVersion="0.19.3", complete=False, unknownFiles=2,
+                       components={"Fabric": "0.19.3"}, mods=[mod], directory="private")
+        result = pilot.normalize_context(context)
+        self.assertFalse(result["complete"])
+        self.assertEqual(2, result["unknownFiles"])
+        self.assertEqual({"minecraft": "~1.21.1"}, result["mods"][0]["dependencies"])
+        self.assertNotIn("filename", result["mods"][0])
+        self.assertNotIn("directory", result)
+        self.assertEqual({"schema": 1, "available": False}, pilot.normalize_context({"schema": 1, "available": False}))
+        for change in [{"id": "../private"}, {"version": "contains secret"}, {"dependencies": {"a": "https://private"}}]:
+            with self.assertRaises(ValueError):
+                pilot.normalize_context(context | {"mods": [mod | change]})
+        with self.assertRaises(ValueError):
+            pilot.normalize_context(context | {"mods": [mod] * 4097})
+
     @unittest.skipUnless(hasattr(os, "O_NOFOLLOW"), "Production collector runs on Linux")
     def test_collector_rejects_symlinks_and_oversized_files(self):
         with tempfile.TemporaryDirectory() as temporary:
