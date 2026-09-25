@@ -175,6 +175,7 @@ internal static partial class Program
         // XSR-512: staged install core.
         ("staged tree verification rejects mismatches", Sync(StagedTreeVerificationRejectsMismatches)),
         ("flattening collapses single package wrapper roots", Sync(FlattenSingleRootCollapsesWrapperFolders)),
+        ("update discovery binds every version", UpdateDiscoveryBindsEveryVersion),
         ("update deletion requires signed ownership", UpdateDeletionRequiresSignedOwnership),
         ("plan building preserves unknown files", Sync(BuildPlanInventoriesManagedLeftovers)),
         ("applying a plan places files and runs deletes", Sync(ApplyPlanPlacesFilesAndRunsDeletes)),

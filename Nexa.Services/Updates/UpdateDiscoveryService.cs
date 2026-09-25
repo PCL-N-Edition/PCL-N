@@ -54,6 +54,8 @@ public sealed class UpdateDiscoveryService
     {
         ArgumentNullException.ThrowIfNull(identity);
         UpdatePackage full = _planner.PlanFull(targetTag, channel, identity);
+        if (candidateVersion is not null && !UpdatePackagePlanner.SameVersion(candidateVersion, full.TargetVersion))
+            return new UpdateDiscoveryResult(UpdateEligibilityDecision.Unrecognized, null);
 
         UpdateEligibilityResult eligibility = UpdateEligibility.Evaluate(
             identity.Version,
@@ -137,7 +139,11 @@ public sealed class UpdateDiscoveryService
             identity.Version,
             indexes,
             fullPackageBytes);
-        return new UpdateDiscoveryResult(UpdateEligibilityDecision.Allowed, package ?? full);
+        UpdatePackage final = package ?? full;
+        var finalEligibility = UpdateEligibility.Evaluate(identity.Version, final.TargetVersion);
+        return UpdatePackagePlanner.SameVersion(final.TargetVersion, full.TargetVersion) && finalEligibility.IsAllowed
+            ? new UpdateDiscoveryResult(UpdateEligibilityDecision.Allowed, final)
+            : new UpdateDiscoveryResult(UpdateEligibilityDecision.Unrecognized, null);
     }
 
     /// <summary>
@@ -171,7 +177,8 @@ public sealed class UpdateDiscoveryService
                     UpdatePatchIndexDto? index = JsonSerializer.Deserialize(
                         body,
                         UpdateJsonContext.Default.UpdatePatchIndexDto);
-                    if (index is not null && index.FormatVersion is >= 1 and <= 3 && index.Variants is { Count: > 0 })
+                    if (index is not null && index.FormatVersion is >= 1 and <= 3 && index.Variants is { Count: > 0 }
+                        && UpdatePackagePlanner.IsBoundIndex(new UpdatePatchIndexSource(tag, index)))
                     {
                         return new UpdatePatchIndexSource(tag, index);
                     }

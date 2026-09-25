@@ -100,6 +100,11 @@ public sealed class UpdatePackagePlanner
         }
 
         UpdatePatchIndexSource target = indexes[0];
+        if (!SameVersion(targetTag, target.ReleaseTag)
+            || indexes.Any(index => !IsBoundIndex(index))
+            || !UpdateEligibility.Evaluate(currentVersion, target.Index.TargetVersion).IsAllowed
+            || !UpdateEligibility.Evaluate(identity.Version, target.Index.TargetVersion).IsAllowed)
+            return null;
         UpdatePatchVariantDto? targetVariant = FindVariant(target.Index, identity);
         if (targetVariant is null || string.IsNullOrWhiteSpace(targetVariant.TargetAssetName))
         {
@@ -108,6 +113,10 @@ public sealed class UpdatePackagePlanner
 
         string normalizedCurrent = NormalizeVersion(currentVersion);
         string normalizedTarget = NormalizeVersion(target.Index.TargetVersion ?? targetTag);
+        if (!SameVersion(normalizedTarget, targetTag)
+            || !UpdateEligibility.Evaluate(currentVersion, normalizedTarget).IsAllowed
+            || !UpdateEligibility.Evaluate(identity.Version, normalizedTarget).IsAllowed)
+            return null;
         List<UpdatePatchStep> path = BuildPatchPath(indexes, identity, normalizedCurrent, normalizedTarget);
 
         string assetName = targetVariant.TargetAssetName!;
@@ -184,6 +193,7 @@ public sealed class UpdatePackagePlanner
         Dictionary<string, List<PatchEdge>> edges = new(StringComparer.OrdinalIgnoreCase);
         foreach (UpdatePatchIndexSource loaded in indexes)
         {
+            if (!IsBoundIndex(loaded)) continue;
             UpdatePatchVariantDto? variant = FindVariant(loaded.Index, identity);
             if (variant?.Patches is null || string.IsNullOrWhiteSpace(loaded.Index.TargetVersion) ||
                 string.IsNullOrWhiteSpace(variant.TargetSha256))
@@ -254,6 +264,13 @@ public sealed class UpdatePackagePlanner
             ? scatter
             : legacy;
     }
+
+    internal static bool SameVersion(string? first, string? second) =>
+        UpdateVersion.TryParse(first, out var left) && UpdateVersion.TryParse(second, out var right) && left == right;
+
+    internal static bool IsBoundIndex(UpdatePatchIndexSource source) =>
+        SameVersion(source.ReleaseTag, source.Index.TargetVersion)
+        && (source.Index.TargetTag is null || SameVersion(source.ReleaseTag, source.Index.TargetTag));
 
     /// <summary>
     /// Whether this target tag still ships a dual-publish v1 map: v1 maps stop at 1.4.7, and
