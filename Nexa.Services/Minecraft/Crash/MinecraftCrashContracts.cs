@@ -144,7 +144,15 @@ public static class MinecraftLaunchFaultAnalyzer
         ArgumentNullException.ThrowIfNull(evidence);
         string[] normalized = evidence.Where(static line => !string.IsNullOrWhiteSpace(line)).Select(static line => line.Trim().Length > 2048 ? line.Trim()[..2048] : line.Trim()).TakeLast(200).ToArray();
         MinecraftLaunchFaultCode code = Classify(string.Join('\n', normalized.Concat([lastClassName ?? string.Empty])), stage ?? "GameProcess");
-        return Create(code, string.IsNullOrWhiteSpace(stage) ? "GameProcess" : stage!, string.Empty, normalized.LastOrDefault() ?? "Minecraft process exited unexpectedly.", null, lastClassName, normalized);
+        string[] causes = normalized.Where(static line => line.StartsWith("Caused by:", StringComparison.OrdinalIgnoreCase)
+            || line.StartsWith("Exception in thread", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("Exception:", StringComparison.Ordinal)
+            || line.Contains("Error:", StringComparison.Ordinal)).Take(8).ToArray();
+        string message = causes.Length > 0 ? string.Join('\n', causes)
+            : string.Join('\n', normalized.Where(static line => !line.StartsWith("at ", StringComparison.Ordinal)
+                && !line.StartsWith("...", StringComparison.Ordinal)).Take(6));
+        if (message.Length == 0) message = normalized.FirstOrDefault() ?? "Minecraft process exited unexpectedly.";
+        return Create(code, string.IsNullOrWhiteSpace(stage) ? "GameProcess" : stage!, string.Empty, message, null, lastClassName, normalized);
     }
 
     private static MinecraftLaunchFaultReport Create(MinecraftLaunchFaultCode code, string stage, string exceptionType, string message, string? stack, string? lastClass, IEnumerable<string>? evidence) => new()

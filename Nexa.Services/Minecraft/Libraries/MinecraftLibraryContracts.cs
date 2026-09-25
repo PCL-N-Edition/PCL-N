@@ -480,6 +480,10 @@ public static class MinecraftClasspathPlanner
 
         foreach (string head in request.ClasspathHeadEntries.Where(static value => !string.IsNullOrWhiteSpace(value))) entries.Insert(0, head);
         if (!string.IsNullOrWhiteSpace(optiFine)) entries.Insert(Math.Max(0, entries.Count - 2), optiFine);
-        return new MinecraftClasspathPlan(entries);
+        // Flattened loader profiles may repeat vanilla libraries. BootstrapLauncher's union
+        // filesystem rejects duplicate paths, even when their Maven coordinates are equal.
+        // Deduplicate after ordering so explicit head precedence and loader placement survive.
+        var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        return new MinecraftClasspathPlan(entries.DistinctBy(static path => Path.GetFullPath(path), comparer).ToArray());
     }
 }

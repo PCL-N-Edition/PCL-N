@@ -341,6 +341,10 @@ public sealed class MinecraftProcessService : IAsyncDisposable
             string[] evidence = await session.ReadEvidenceAsync().ConfigureAwait(false);
             var snapshot = session.Snapshot;
             if (snapshot.State != MinecraftProcessState.Failed || _store is null) return;
+            // The bounded output has already been redacted by AddEvidence. Preserve it locally
+            // before the session is pruned so diagnostics do not depend on an open dialog.
+            foreach (string line in evidence)
+                _log?.Warn("GameOutput", $"session={snapshot.SessionId} pid={snapshot.ProcessId} {line}");
             var report = MinecraftLaunchFaultAnalyzer.AnalyzeText(
                 evidence.Length == 0 ? [$"Minecraft exited with code {snapshot.ExitCode}."] : evidence);
             var id = _store.Resolve(MinecraftProcessStateComposition.FailuresKey);

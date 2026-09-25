@@ -179,6 +179,17 @@ internal static partial class Program
         AssertFalse(plan.Entries.Contains(native.LocalPath));
         AssertTrue(plan.Entries.Contains("head.jar"));
         AssertTrue(plan.Entries.Contains("optifine.jar"));
+        string gson = Path.Combine(root, "gson.jar");
+        MinecraftClasspathPlan repeated = MinecraftClasspathPlanner.CreatePlan(new()
+        {
+            Libraries = [new() { LocalPath = gson }, new() { LocalPath = Path.Combine(root, ".", "gson.jar") },
+                new() { LocalPath = Path.Combine(root, "other.jar") }],
+            ClasspathHeadEntries = [gson],
+            BundledClasspathEntries = [gson],
+        });
+        AssertEqual(2, repeated.Entries.Count);
+        AssertEqual(gson, repeated.Entries[0]);
+        AssertEqual(Path.Combine(root, "other.jar"), repeated.Entries[1]);
     }
 
     internal static void MinecraftLibraryArtifactAndNativeClassifierBothResolve()
@@ -352,6 +363,14 @@ internal static partial class Program
         AssertEqual("JVM", java.Subsystem);
         AssertTrue(java.AllowedActions.Contains(MinecraftRepairActionKind.SelectCompatibleJava));
         MinecraftLaunchFaultReport graphics = MinecraftLaunchFaultAnalyzer.AnalyzeText(["GLFW error: failed to create window"], "MinecraftClient", "org.lwjgl.glfw.GLFW");
+        MinecraftLaunchFaultReport bootstrap = MinecraftLaunchFaultAnalyzer.AnalyzeText([
+            "Exception in thread \"main\" java.lang.IllegalStateException: bootstrap failed",
+            "at cpw.mods.bootstraplauncher.BootstrapLauncher.main(BootstrapLauncher.java:141)",
+            "Caused by: java.lang.IllegalArgumentException: conflicting module",
+            "at example.Main.run(Main.java:12)"]);
+        AssertTrue(bootstrap.Message.Contains("conflicting module", StringComparison.Ordinal));
+        AssertTrue(bootstrap.Message.Contains("bootstrap failed", StringComparison.Ordinal));
+        AssertFalse(bootstrap.Message.Contains("Main.run", StringComparison.Ordinal));
         AssertEqual(MinecraftLaunchFaultCode.GraphicsInitializationFailed, graphics.Code);
         AssertEqual("Graphics", graphics.Subsystem);
 
