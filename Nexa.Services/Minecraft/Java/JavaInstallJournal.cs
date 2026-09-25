@@ -81,7 +81,11 @@ internal sealed class JavaInstallJournal
 
     internal JavaRuntimeDownloadFile StagedFile(JavaRuntimeDownloadFile file) => file with { TargetPath = ForgeInstallService.Contained(Payload, file.RelativePath) };
     internal Task MarkReadyAsync(CancellationToken token) => WriteAsync(Path.Combine(Stage, "ready"), "1"u8.ToArray(), token);
-    internal Task CompleteExistingAsync(CancellationToken token) => WriteAsync(Path.Combine(Stage, "complete"), "1"u8.ToArray(), token);
+    internal async Task CompleteExistingAsync(CancellationToken token)
+    {
+        await WriteAsync(Path.Combine(Stage, "complete"), "1"u8.ToArray(), token).ConfigureAwait(false);
+        InstallTaskCleanup.TryPrune(Stage, "intent.json", "plan.json", "complete");
+    }
     internal Task MarkCanceledAsync() => WriteAsync(Path.Combine(Stage, "canceled"), "1"u8.ToArray(), CancellationToken.None);
 
     internal async Task PublishAsync(JavaRuntimeDownloadPlan plan, Func<string, JavaRuntimeDownloadFile, CancellationToken, Task<bool>> verify)
@@ -103,6 +107,7 @@ internal sealed class JavaInstallJournal
         foreach (var file in plan.Files)
             if (!await verify(file.TargetPath, file, CancellationToken.None).ConfigureAwait(false)) throw new InvalidDataException("Java 发布结果校验失败。");
         if (!Completed) await WriteAsync(Path.Combine(Stage, "complete"), "1"u8.ToArray(), CancellationToken.None).ConfigureAwait(false);
+        InstallTaskCleanup.TryPrune(Stage, "intent.json", "plan.json", "ready", "complete");
     }
 
     internal async Task CancelAsync(Func<string, JavaRuntimeDownloadFile, CancellationToken, Task<bool>> verify)
@@ -115,6 +120,12 @@ internal sealed class JavaInstallJournal
             RecoveryBlobStore.CheckLinks(Backup); RecoveryBlobStore.CheckLinks(Payload); RecoveryBlobStore.CheckLinks(plan.TargetDirectory);
             if (!Directory.Exists(Payload) && Directory.Exists(plan.TargetDirectory))
             {
+                var expected = plan.Files.Select(file => file.RelativePath.Replace('\\', '/')).ToHashSet(MinecraftLibraryService.PathComparer);
+                foreach (string path in Directory.EnumerateFiles(plan.TargetDirectory, "*", SearchOption.AllDirectories))
+                {
+                    RecoveryBlobStore.CheckLinks(path);
+                    if (!expected.Contains(Path.GetRelativePath(plan.TargetDirectory, path).Replace('\\', '/'))) throw new IOException("Java 目录出现后续文件，未撤回用户内容。");
+                }
                 foreach (var file in plan.Files)
                     if (!await verify(file.TargetPath, file, CancellationToken.None).ConfigureAwait(false)) throw new IOException("Java 文件已改变，未覆盖后续修改。");
                 Directory.Move(plan.TargetDirectory, Payload);
@@ -126,6 +137,7 @@ internal sealed class JavaInstallJournal
             }
         }
         await MarkCanceledAsync().ConfigureAwait(false);
+        InstallTaskCleanup.TryPrune(Stage, "intent.json", "plan.json", "ready", "cancel-requested", "canceled");
     }
 
     private bool Marker(string name)

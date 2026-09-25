@@ -358,6 +358,10 @@ internal static partial class Program
             {
                 AssertFalse((await fixture.Install.InstallModpackAsync(new(preview, root), cancellation.Token)).IsSuccess);
                 AssertTrue((await fixture.Install.StopAsync(new(false))).IsSuccess);
+                string job = Directory.GetDirectories(Path.Combine(root, ".nexa-pack-jobs")).Single();
+                AssertFalse(Directory.Exists(Path.Combine(job, "game")));
+                AssertFalse(File.Exists(Path.Combine(job, "source.pack")));
+                AssertTrue(File.Exists(Path.Combine(job, "canceled")));
             }
             using var restarted = new InstallFixture(new FakeMetadata());
             AssertTrue((await restarted.Install.RecoverPendingAsync(new([root]))).IsSuccess);

@@ -129,6 +129,7 @@ public sealed partial class MinecraftInstallService
             await InstallTaskJournal.WriteStatusAsync(stage, saved, InstallTaskStatus.RollbackRequested, token).ConfigureAwait(false);
             if (journal is not null) await journal.RollbackAsync(token, enclosingRenamePending: renaming).ConfigureAwait(false);
             await InstallTaskJournal.WriteStatusAsync(stage, saved, InstallTaskStatus.RolledBack, CancellationToken.None).ConfigureAwait(false);
+            InstallTaskCleanup.TryPrune(stage, ".task/plan.json", ".task/status.json", ".task/execution.lock");
             task.Complete(newInstallation ? "已取消安装" : "已回滚修改");
             Installed?.Invoke(root);
         }

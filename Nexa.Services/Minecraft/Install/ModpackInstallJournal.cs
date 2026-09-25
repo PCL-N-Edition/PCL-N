@@ -106,12 +106,14 @@ internal sealed class ModpackInstallJournal
             token.ThrowIfCancellationRequested(); Directory.Move(Instance, Destination);
         }
         if (!Complete) await WriteAsync(Stage, "complete", "1"u8.ToArray(), CancellationToken.None).ConfigureAwait(false);
+        InstallTaskCleanup.TryPrune(Stage, "intent.json", "files.json", "publication.json", "complete", "lock");
     }
     internal async Task CancelAsync()
     {
         if (Complete || Canceled) return;
         if (Prepared && !Directory.Exists(Instance)) { await PublishAsync(CancellationToken.None).ConfigureAwait(false); return; }
         await WriteAsync(Stage, "canceled", "1"u8.ToArray(), CancellationToken.None).ConfigureAwait(false);
+        InstallTaskCleanup.TryPrune(Stage, "intent.json", "canceled", "lock");
     }
     private bool Marker(string name)
     {
