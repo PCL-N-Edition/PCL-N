@@ -28,6 +28,16 @@ estimator. Do not extrapolate or alter heap/native/commit estimates using workin
 Remote influence must be bounded and its provenance shown as an estimate. Telemetry is self-reported;
 these gates do not prevent coordinated poisoning, and coefficients are not trusted executable code.
 
+Production integration refreshes once at startup and hourly on a background task. Launch queries
+carry the captured plan's heap, classpath count and loader, and the actual game directory's persisted
+render distance (the same reader used by telemetry). Missing inputs disable online calibration.
+The projection adjusts only physical launch/runtime totals and their margins: remove the local
+system reserve and shared graphics estimate, blend process working set at 25% weight with the
+remote prediction clamped to 0.5..1.5 times that local process estimate, then restore both reserves.
+Thus remote influence is at most 12.5% of the process portion. Heap/native/commit and local historical
+calibration remain unchanged. Modified capabilities retain Estimate kind and Low confidence, with
+Chinese provenance identifying online calibration. No remote value creates a verified hard blocker.
+
 The client admission component uses a 64 KiB actual-read limit and a three-second refresh timeout.
 It rejects duplicate properties/cohorts, unsupported metrics, malformed feature vectors, weak
 validation statistics, invalid sample counts, and expired or overlong validity windows. Prediction
@@ -36,8 +46,9 @@ not extrapolate. Refreshes serialize and cannot replace a newer document with an
 A failed refresh retains a previously admitted session-cache document only until its original expiry;
 there is no disk cache or extension of validity on network failure. Cancellation propagates.
 
-Current slice: server trainer, scheduled aggregation, aggregate download route, client admission and
-explicit download/session-cache component, and deterministic regression/SQL/privacy tests are implemented.
-Production background refresh wiring and estimate projection, mod-specific learned
-profiles, administrator model-quality presentation and live deployment remain pending. Alpha 5 is
+Current slice: server trainer, scheduled aggregation, aggregate download route, client admission,
+production background refresh, scoped physical-budget projection, and deterministic regression/SQL/privacy
+tests are implemented. Scope-less settings snapshots retain the local estimate: only a captured launch
+plan supplies the features needed for online calibration. Mod-specific learned profiles,
+administrator model-quality presentation and live deployment remain pending. Alpha 5 is
 not complete from this slice alone.

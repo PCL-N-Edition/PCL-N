@@ -19,6 +19,9 @@ public sealed record MachineCapabilityQuery(
 {
     public string? JavaExecutablePath { get; init; }
     public long? PlannedHeapMiB { get; init; }
+    public int? PlannedClasspathCount { get; init; }
+    public int? PlannedRenderDistance { get; init; }
+    public string? PlannedLoader { get; init; }
     public bool RefreshInstance { get; init; }
     public bool HasInstanceScope => !string.IsNullOrWhiteSpace(InstanceDirectory) || !string.IsNullOrWhiteSpace(InstanceId);
 }

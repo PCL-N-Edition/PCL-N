@@ -153,8 +153,16 @@ public static class MinecraftRuntimeComposer
         owned.Add(fileCompletion);
         LaunchPreflightGate preflight = new(host.StateStore, async (root, instance, plan, token) =>
         {
+            var persistedSettings = await Task.Run(() => JvmRunSettings.Read(plan.GameDirectory), token).ConfigureAwait(false);
             var snapshot = await host.MachineCapabilities.ReadAsync(new MachineCapabilityQuery(plan.InstanceDirectory, instance, root)
-            { JavaExecutablePath = plan.JavaExecutablePath, PlannedHeapMiB = plan.HeapLimitMiB, RefreshInstance = true }, cancellationToken: token).ConfigureAwait(false);
+            {
+                JavaExecutablePath = plan.JavaExecutablePath,
+                PlannedHeapMiB = plan.HeapLimitMiB,
+                PlannedClasspathCount = plan.ClasspathEntries.Count,
+                PlannedLoader = plan.ModLoader.Kind.ToString(),
+                PlannedRenderDistance = persistedSettings.RenderDistance,
+                RefreshInstance = true
+            }, cancellationToken: token).ConfigureAwait(false);
             return CapabilityPreflightEngine.Evaluate(snapshot);
         });
         MinecraftLaunchCoordinator coordinator = new(

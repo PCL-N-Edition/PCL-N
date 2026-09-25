@@ -80,6 +80,7 @@ public sealed class FoundationHost
         SettingsPolicy = new SettingsPolicyService(Settings);
         InputUsage = new InputUsageTracker();
         ObservationHistory = new ResourceObservationHistory();
+        OnlineResourceModels = new OnlineWorkingSetModelStore();
         IRemediationHandler[] configuredRemediations = [.. remediationHandlers ?? []];
         HashSet<string> configuredRemediationIds = configuredRemediations
             .Select(static handler => handler.Id).ToHashSet(StringComparer.Ordinal);
@@ -127,7 +128,7 @@ public sealed class FoundationHost
             capabilityRegistry, capabilityProviders, StateStore,
             timeout: TimeSpan.FromSeconds(45),
             derivations: MachineDerivedRules.Defaults(),
-            projections: [new ResourceEstimatorProjection(history: ObservationHistory), new LaunchPolicyProjection(), new PreflightProjection()]);
+            projections: [new ResourceEstimatorProjection(history: ObservationHistory), new OnlineWorkingSetProjection(OnlineResourceModels), new LaunchPolicyProjection(), new PreflightProjection()]);
         ResourceEstimator = new ResourceEstimator(history: ObservationHistory);
         Preflight = new CapabilityPreflightEngine();
         Tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
@@ -154,6 +155,7 @@ public sealed class FoundationHost
     public ResourceEstimator ResourceEstimator { get; }
     public CapabilityPreflightEngine Preflight { get; }
     public ResourceObservationHistory ObservationHistory { get; }
+    public OnlineWorkingSetModelStore OnlineResourceModels { get; }
     public RemediationService Remediations { get; }
 
     /// <summary>Registered services in activation order (for composition diagnostics).</summary>

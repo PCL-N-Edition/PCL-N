@@ -336,6 +336,7 @@ internal static class Program
             updateService.Record = telemetrySession.Record;
         }
         rollouts.Start();
+        using var onlineResourceModels = new Nexa.Services.Capabilities.OnlineWorkingSetModelSession(updateHttp, host.OnlineResourceModels);
         setStage("gui_lifetime");
         host.Logging.Info("Launcher", "Entering Avalonia GUI lifetime.");
         int exitCode;

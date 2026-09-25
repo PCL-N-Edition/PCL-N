@@ -100,21 +100,35 @@ public sealed class OnlineWorkingSetModel
 
 /// <summary>A session cache, refreshed explicitly off the render/launch path. A failed refresh
 /// retains the last admitted document only until its original expiry. No response can extend it.</summary>
-public sealed class OnlineWorkingSetModelClient(HttpClient http, TimeProvider? clock = null) : IDisposable
+public sealed class OnlineWorkingSetModelStore
+{
+    private readonly object _gate = new();
+    private OnlineWorkingSetModel? _current;
+    public OnlineWorkingSetModel? Read(DateTimeOffset now)
+    {
+        var model = Volatile.Read(ref _current);
+        return model is not null && model.ExpiresAt > now ? model : null;
+    }
+    internal bool Publish(OnlineWorkingSetModel model)
+    {
+        lock (_gate)
+        {
+            if (_current is { } previous && model.GeneratedAt < previous.GeneratedAt) return false;
+            Volatile.Write(ref _current, model);
+            return true;
+        }
+    }
+}
+
+public sealed class OnlineWorkingSetModelClient(HttpClient http, TimeProvider? clock = null,
+    OnlineWorkingSetModelStore? store = null) : IDisposable
 {
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
     private readonly SemaphoreSlim _refresh = new(1);
-    private OnlineWorkingSetModel? _current;
+    private readonly OnlineWorkingSetModelStore _store = store ?? new();
     /// <summary>The owner must cancel and await outstanding refreshes before disposal.</summary>
     public void Dispose() => _refresh.Dispose();
-    public OnlineWorkingSetModel? Current
-    {
-        get
-        {
-            var model = Volatile.Read(ref _current);
-            return model is not null && model.ExpiresAt > _clock.GetUtcNow() ? model : null;
-        }
-    }
+    public OnlineWorkingSetModel? Current => _store.Read(_clock.GetUtcNow());
 
     public async Task<bool> RefreshAsync(CancellationToken cancellationToken = default)
     {
@@ -138,9 +152,7 @@ public sealed class OnlineWorkingSetModelClient(HttpClient http, TimeProvider? c
             }
             var model = OnlineWorkingSetModel.Parse(buffer.AsMemory(0, count), _clock.GetUtcNow());
             timeout.Token.ThrowIfCancellationRequested();
-            if (_current is { } previous && model.GeneratedAt < previous.GeneratedAt) return false;
-            Volatile.Write(ref _current, model);
-            return true;
+            return _store.Publish(model);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception error) when (error is HttpRequestException or IOException or InvalidDataException or JsonException

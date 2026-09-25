@@ -64,6 +64,61 @@ internal static partial class Program
         public DateTimeOffset Now = ModelNow;
         public override DateTimeOffset GetUtcNow() => Now;
     }
+    private static void OnlineProjectionPreservesResourceSemantics()
+    {
+        var store = new OnlineWorkingSetModelStore();
+        AssertTrue(store.Publish(OnlineWorkingSetModel.Parse(ModelBytes(ModelDocument()), ModelNow)));
+        var projection = new OnlineWorkingSetProjection(store, "windows");
+        var facts = new ResourceEstimatorProjection().Project(new Dictionary<string, ICapability>(), ModelNow)
+            .ToDictionary(item => item.Id, StringComparer.Ordinal);
+        facts[MachineCapabilityCatalog.PhysicalAvailable.Id] = MachineCapabilityCatalog.PhysicalAvailable.Observe(64L * 1024 * 1024, ModelNow, "test");
+        var query = new MachineCapabilityQuery("D:/game/versions/test", "test", "D:/game")
+        { PlannedHeapMiB = 4096, PlannedClasspathCount = 256, PlannedLoader = "Fabric", PlannedRenderDistance = 16 };
+        var projected = projection.Project(facts, ModelNow, query);
+        AssertEqual(4, projected.Count);
+        foreach (var value in projected)
+        {
+            AssertTrue(value.Id.StartsWith("estimate.physical.", StringComparison.Ordinal));
+            AssertEqual(CapabilityKind.Estimate, value.Definition.Kind);
+            AssertEqual(CapabilityConfidence.Low, value.Confidence);
+        }
+        long reserve = ((Capability<long>)facts["estimate.physical.system_reserve"]).Value;
+        long graphics = ((Capability<long>)facts["estimate.graphics.shared_system"]).Value;
+        long original = ((Capability<long>)facts["estimate.physical.runtime"]).Value;
+        long expected = (long)Math.Ceiling((original - reserve - graphics) * .75
+            + Math.Clamp(2816d, (original - reserve - graphics) * .5, (original - reserve - graphics) * 1.5) * .25 + reserve + graphics);
+        AssertEqual(expected, ((Capability<long>)projected.Single(v => v.Id == "estimate.physical.runtime")).Value);
+        AssertEqual(0L, ((Capability<long>)projected.Single(v => v.Id == "estimate.physical.runtime_margin")).Value);
+        foreach (var fact in projected) facts[fact.Id] = fact;
+        var report = CapabilityPreflightEngine.Evaluate(new MachineCapabilitySnapshot(1, ModelNow, facts.Values));
+        AssertTrue(report.Issues.Any(issue => issue.Code == "MEM_PHYSICAL_RUNTIME_LOW"));
+        AssertFalse(report.Issues.Any(issue => issue.Severity == PreflightSeverity.Blocked));
+        AssertEqual(0, projection.Project(facts, ModelNow, query with { PlannedClasspathCount = null }).Count);
+        AssertEqual(0, projection.Project(facts, ModelNow, query with { PlannedRenderDistance = -1 }).Count);
+        AssertEqual(0, projection.Project(facts, ModelNow, query with { PlannedLoader = "Unknown" }).Count);
+        AssertEqual(0, projection.Project(facts, ModelNow.AddDays(7), query).Count);
+        AssertEqual(0, projection.Project(facts, ModelNow, new MachineCapabilityQuery()).Count);
+    }
+
+    private sealed class WaitingModelFeed : HttpMessageHandler
+    {
+        public readonly TaskCompletionSource Entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Entered.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("Canceled request must never finish normally.");
+        }
+    }
+    private static async ValueTask OnlineModelSessionCancelsPendingRefresh()
+    {
+        var feed = new WaitingModelFeed(); using var http = new HttpClient(feed);
+        using var session = new OnlineWorkingSetModelSession(http, new OnlineWorkingSetModelStore());
+        await feed.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        session.Dispose();
+        await session.Completion.WaitAsync(TimeSpan.FromSeconds(5));
+        session.Dispose();
+    }
     private sealed class ModelFeed : HttpMessageHandler
     {
         public byte[] Body = ModelBytes(ModelDocument());
