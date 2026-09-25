@@ -13,12 +13,15 @@ internal static class ModInventoryFingerprint
         List<string> entries = [];
         foreach (var mod in inventory.Mods.Where(static item => item.Enabled))
         {
-            if (mod.Version == "unknown" || !mod.DependenciesComplete || mod.Dependencies.Count > 64) return null;
+            if (mod.Version == "unknown" || !mod.DependenciesComplete || mod.Dependencies.Count > 64
+                || mod.ContentSha256 is not { Length: 64 } digest || digest.Any(c => c is not (>= '0' and <= '9' or >= 'A' and <= 'F'))) return null;
             bytes.SetLength(0);
             bytes.Position = 0;
             writer.Write(mod.Id);
             writer.Write(mod.Version);
             writer.Write(mod.Format);
+            writer.Write(digest);
+            writer.Write(mod.NestedCandidate);
             foreach (var dependency in mod.Dependencies.OrderBy(static item => item.Key, StringComparer.Ordinal))
             {
                 writer.Write(dependency.Key);
@@ -28,6 +31,6 @@ internal static class ModInventoryFingerprint
             entries.Add(Convert.ToHexString(SHA256.HashData(bytes.GetBuffer().AsSpan(0, (int)bytes.Length))));
         }
         entries.Sort(StringComparer.Ordinal);
-        return "mod-metadata-1:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', entries))));
+        return "mod-content-2:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', entries))));
     }
 }

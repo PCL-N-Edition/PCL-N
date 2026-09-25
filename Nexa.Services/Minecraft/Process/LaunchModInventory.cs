@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -7,7 +8,11 @@ using Nexa.Services.Files;
 namespace Nexa.Services.Minecraft.Process;
 
 public sealed record LaunchModIdentity(string Id, string Version, string Format, bool Enabled,
-    IReadOnlyDictionary<string, string> Dependencies, bool DependenciesComplete);
+    IReadOnlyDictionary<string, string> Dependencies, bool DependenciesComplete)
+{
+    public string? ContentSha256 { get; init; }
+    public bool NestedCandidate { get; init; }
+}
 public sealed record LaunchModInventory(IReadOnlyList<LaunchModIdentity> Mods, int UnknownFiles, bool Complete);
 public sealed record JvmRunContext(Guid SessionId, string Loader, string LoaderVersion, LaunchModInventory Inventory)
 {
@@ -24,12 +29,18 @@ public static partial class LaunchModInventoryReader
         List<LaunchModIdentity> mods = []; int unknown = 0, files = 0, archives = 0; bool complete = true;
         var budget = new ArchiveReadBudget(16 * 1024 * 1024);
         var nestedBudget = new ArchiveReadBudget(64 * 1024 * 1024);
+        var hashBudget = new ArchiveReadBudget(2L * 1024 * 1024 * 1024);
         async Task ReadArchiveAsync(Stream input, bool enabled, int depth)
         {
             token.ThrowIfCancellationRequested();
             if (++archives > 2048 || mods.Count >= 4096) { complete = false; return; }
+            using var hash = SHA256.Create();
+            await using var hashStream = new CryptoStream(Stream.Null, hash, CryptoStreamMode.Write, leaveOpen: true);
+            await ArchiveReadBudget.CopyAsync(input, hashStream, input.Length, 256L * 1024 * 1024, hashBudget, token).ConfigureAwait(false);
+            await hashStream.FlushFinalBlockAsync(token).ConfigureAwait(false);
+            string digest = Convert.ToHexString(hash.Hash!);
+            input.Position = 0;
             using var zip = new ZipArchive(input, ZipArchiveMode.Read, leaveOpen: true);
-            if (zip.GetEntry("META-INF/jarjar/metadata.json") is not null) complete = false;
             string? format = Formats.FirstOrDefault(name => zip.GetEntry(name) is not null);
             if (format is null) { unknown++; return; }
             if (zip.Entries.Count(entry => entry.FullName == format) != 1) { complete = false; return; }
@@ -37,23 +48,43 @@ public static partial class LaunchModInventoryReader
             await using var content = entry.Open(); using var buffer = new MemoryStream();
             await ArchiveReadBudget.CopyAsync(content, buffer, entry.Length, 256 * 1024, budget, token).ConfigureAwait(false);
             string text = Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
-            if (format == "quilt.mod.json") complete = false;
             var parsed = Parse(text, format, enabled);
             if (parsed.Count == 0) unknown++;
             else
             {
                 if (parsed.Count > 4096 - mods.Count) complete = false;
-                mods.AddRange(parsed.Take(4096 - mods.Count));
+                mods.AddRange(parsed.Take(4096 - mods.Count).Select(mod => mod with { ContentSha256 = digest, NestedCandidate = depth > 0 }));
             }
-            if (format != "fabric.mod.json" || JsonNode.Parse(text) is not JsonObject fabric || fabric["jars"] is null) return;
-            if (fabric["jars"] is not JsonArray jars || jars.Count > 128 || depth >= 4 && jars.Count > 0)
+            List<string?> names = [];
+            JsonNode? declaration = format switch
+            {
+                "fabric.mod.json" => JsonNode.Parse(text)?["jars"],
+                "quilt.mod.json" => JsonNode.Parse(text)?["quilt_loader"]?["jars"],
+                _ => null
+            };
+            if (declaration is JsonArray jars)
+                names.AddRange(jars.Take(129).Select(node => format == "quilt.mod.json"
+                    ? node is JsonValue name && name.TryGetValue<string>(out var path) ? path : null
+                    : node is JsonObject child && child["file"] is JsonValue value && value.TryGetValue<string>(out var childPath) ? childPath : null));
+            else if (declaration is not null) complete = false;
+            if (zip.GetEntry("META-INF/jarjar/metadata.json") is { } jarjar)
+            {
+                if (zip.Entries.Count(item => item.FullName == jarjar.FullName) != 1) { complete = false; return; }
+                await using var index = jarjar.Open(); using var indexBuffer = new MemoryStream();
+                await ArchiveReadBudget.CopyAsync(index, indexBuffer, jarjar.Length, 256 * 1024, budget, token).ConfigureAwait(false);
+                var metadata = JsonNode.Parse(indexBuffer.GetBuffer().AsSpan(0, (int)indexBuffer.Length));
+                if (metadata?["jars"] is JsonArray children)
+                    names.AddRange(children.Take(129).Select(node => node is JsonObject child && child["path"] is JsonValue value
+                        && value.TryGetValue<string>(out var path) ? path : null));
+                else complete = false;
+            }
+            if (names.Count > 128 || depth >= 4 && names.Count > 0)
             { complete = false; return; }
             HashSet<string> visited = new(StringComparer.Ordinal);
-            foreach (var node in jars)
+            foreach (var name in names)
             {
                 token.ThrowIfCancellationRequested();
-                if (node is not JsonObject child || child["file"] is not JsonValue value || !value.TryGetValue<string>(out var name)
-                    || string.IsNullOrWhiteSpace(name) || name.Length > 512 || name.StartsWith('/') || name.Contains('\\')
+                if (string.IsNullOrWhiteSpace(name) || name.Length > 512 || name.StartsWith('/') || name.Contains('\\')
                     || name.Contains(':') || name.Split('/').Any(part => part is "" or "." or "..") || !visited.Add(name))
                 { complete = false; continue; }
                 var nested = zip.GetEntry(name);
@@ -85,8 +116,11 @@ public static partial class LaunchModInventoryReader
                 {
                     var info = new FileInfo(path);
                     if ((info.Attributes & FileAttributes.ReparsePoint) != 0 || info.Length > 256 * 1024 * 1024) { unknown++; continue; }
-                    await using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, true);
+                    long length = info.Length, stamp = info.LastWriteTimeUtc.Ticks;
+                    await using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
                     await ReadArchiveAsync(input, enabled, 0).ConfigureAwait(false);
+                    info.Refresh();
+                    if (!info.Exists || info.Length != length || info.LastWriteTimeUtc.Ticks != stamp) complete = false;
                 }
                 catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException)
                 { unknown++; }
@@ -120,7 +154,7 @@ public static partial class LaunchModInventoryReader
             string id = Text(item, format == "mcmod.info" ? "modid" : "id"), version = Text(item, "version");
             if (!SafeId(id)) continue;
             Dictionary<string, string> dependencies = new(StringComparer.Ordinal);
-            bool full = format == "fabric.mod.json";
+            bool full = format is "fabric.mod.json" or "quilt.mod.json";
             if (item["depends"] is JsonObject depends)
                 foreach (var pair in depends.Take(65))
                 {
@@ -128,6 +162,20 @@ public static partial class LaunchModInventoryReader
                     if (dependencies.Count >= 64 || !SafeId(pair.Key) || !SafeRange(range)) { full = false; continue; }
                     dependencies[pair.Key] = range;
                 }
+            else if (format == "quilt.mod.json" && item["depends"] is JsonArray quiltDependencies)
+            {
+                if (quiltDependencies.Count > 64) full = false;
+                foreach (var node in quiltDependencies.Take(64))
+                {
+                    if (node is JsonValue scalar && scalar.TryGetValue<string>(out var required) && SafeId(required))
+                    { if (!dependencies.TryAdd(required, "*")) full = false; continue; }
+                    if (node is not JsonObject dependency) { full = false; continue; }
+                    string dependencyId = Text(dependency, "id"), range = dependency["versions"] is null ? "*" : Text(dependency, "versions");
+                    if (dependency["unless"] is not null || !SafeId(dependencyId) || !SafeRange(range)) { full = false; continue; }
+                    if (dependency["optional"] is JsonValue optional && optional.TryGetValue<bool>(out bool skip) && skip) continue;
+                    if (!dependencies.TryAdd(dependencyId, range)) full = false;
+                }
+            }
             else if (item["depends"] is not null) full = false;
             result.Add(new(id, SafeVersion(version) ? version : "unknown", format, enabled, dependencies, full));
         }

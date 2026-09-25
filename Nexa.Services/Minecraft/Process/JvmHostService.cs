@@ -280,7 +280,17 @@ public sealed class JvmHostService : IJvmHost
             await _recovery.RecordSuccessfulExitAsync(plan, snapshot, crashReport is not null || hsErr is not null).ConfigureAwait(false);
         if (historySample is not null && await contextTask.ConfigureAwait(false) is { } context
             && ModInventoryFingerprint.Create(context.Inventory) is { } fingerprint)
-            _history?.Record(historySample with { ModFingerprint = fingerprint, SettingsFingerprint = settingsFingerprint });
+        {
+            try
+            {
+                using var verify = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                var finalInventory = await LaunchModInventoryReader.ReadAsync(plan.GameDirectory, verify.Token).ConfigureAwait(false);
+                if (fingerprint == ModInventoryFingerprint.Create(finalInventory))
+                    _history?.Record(historySample with { ModFingerprint = fingerprint, SettingsFingerprint = settingsFingerprint });
+            }
+            catch (Exception error) when (error is OperationCanceledException or IOException or UnauthorizedAccessException)
+            { /* Incomplete post-run identity must not calibrate future launches. */ }
+        }
     }
 
     internal static ResourceObservationSample? CreateHistorySample(MinecraftLaunchPlan plan,

@@ -6,6 +6,41 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static async ValueTask NestedQuiltAndJarJarInventoryPreservesContentIdentity()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "mods"));
+            foreach (bool quilt in new[] { true, false })
+            {
+                using var buffer = new MemoryStream();
+                using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, true))
+                {
+                    string format = quilt ? "quilt.mod.json" : "META-INF/mods.toml";
+                    string metadata = quilt
+                        ? """{"schema_version":1,"quilt_loader":{"id":"parent","version":"1.0","jars":["nested/child.jar"],"depends":[{"id":"minecraft","versions":">=1.20"}]}}"""
+                        : "[[mods]]\nmodId=\"parent\"\nversion=\"1.0\"";
+                    using (var writer = new StreamWriter(archive.CreateEntry(format).Open())) writer.Write(metadata);
+                    if (!quilt)
+                        using (var writer = new StreamWriter(archive.CreateEntry("META-INF/jarjar/metadata.json").Open()))
+                            writer.Write("""{"jars":[{"path":"nested/child.jar","identifier":{"group":"example","artifact":"child"},"version":{"range":"[1,2)","artifactVersion":"1.0"}}]}""");
+                    using var nested = archive.CreateEntry("nested/child.jar").Open(); nested.Write(FabricJar("child"));
+                }
+                string path = Path.Combine(root, "mods", "bundle.jar");
+                await File.WriteAllBytesAsync(path, buffer.ToArray());
+                var inventory = await LaunchModInventoryReader.ReadAsync(root);
+                AssertTrue(inventory.Complete);
+                AssertEqual(2, inventory.Mods.Count);
+                AssertFalse(inventory.Mods[0].NestedCandidate);
+                AssertTrue(inventory.Mods[1].NestedCandidate);
+                AssertTrue(inventory.Mods.All(mod => mod.ContentSha256?.Length == 64));
+                if (quilt) AssertEqual(">=1.20", inventory.Mods[0].Dependencies["minecraft"]);
+            }
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     private static byte[] FabricJar(string id, byte[]? nested = null, string? reference = null, bool duplicate = false)
     {
         using var buffer = new MemoryStream();

@@ -34,6 +34,13 @@ internal static partial class Program
             AssertEqual(0L, Count());
             facts[ResourceHistoryCatalog.SettingsFingerprint.Id] = ResourceHistoryCatalog.SettingsFingerprint.Observe(first!, now, "fixture");
             AssertEqual(1L, Count());
+            Directory.CreateDirectory(Path.Combine(directory, "config"));
+            string config = Path.Combine(directory, "config", "worldgen.toml");
+            File.WriteAllText(config, "density=1");
+            string? beforeConfig = GameOptionsFingerprint.Read(directory);
+            File.WriteAllText(config, "density=9");
+            AssertFalse(beforeConfig == GameOptionsFingerprint.Read(directory));
+            File.Delete(config);
             facts.Remove(ResourceHistoryCatalog.SettingsFingerprint.Id);
             AssertEqual(0L, Count());
             File.WriteAllBytes(path, new byte[65536]);
@@ -49,12 +56,15 @@ internal static partial class Program
         var now = DateTimeOffset.UtcNow;
         string directory = Path.Combine(Path.GetTempPath(), "nexa-mod-history");
         LaunchModIdentity optimization = new("optimizer", "1.0", "fabric.mod.json", true,
-            new Dictionary<string, string> { ["minecraft"] = "1.21.1", ["fabricloader"] = ">=0.16" }, true);
+            new Dictionary<string, string> { ["minecraft"] = "1.21.1", ["fabricloader"] = ">=0.16" }, true)
+        { ContentSha256 = new string('A', 64) };
         LaunchModIdentity terrain = optimization with { Id = "terrain" };
         string Key(params LaunchModIdentity[] mods) => ModInventoryFingerprint.Create(new(mods, 0, true))!;
         string first = Key(optimization), second = Key(terrain);
         AssertFalse(first == second);
         AssertFalse(first == Key(optimization with { Version = "2.0" }));
+        AssertFalse(first == Key(optimization with { ContentSha256 = new string('B', 64) }));
+        AssertTrue(ModInventoryFingerprint.Create(new([optimization with { ContentSha256 = null }], 0, true)) is null);
         AssertEqual(Key(optimization, terrain), Key(terrain, optimization));
         AssertEqual(first, Key(optimization, terrain with { Enabled = false }));
         AssertEqual(first, Key(optimization with

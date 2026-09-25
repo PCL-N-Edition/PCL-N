@@ -4,6 +4,7 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("nested Quilt and JarJar inventory preserves content identity", NestedQuiltAndJarJarInventoryPreservesContentIdentity),
         ("installed loader compatibility requires explicit evidence", InstalledLoaderCompatibilityRequiresExplicitEvidence),
         ("recovery restore command honors selection and rejects stale preview", RecoveryRestoreCommandHonorsSelectionAndRejectsStalePreview),
         ("recovery captures publish complete manifests only", RecoveryCaptureCommitsOnlyCompleteManifests),
