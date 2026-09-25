@@ -82,7 +82,8 @@ internal static partial class Program
         FoundationRuntime runtime = FoundationRuntimeComposer.Compose(host, observer);
 
         AssertEqual(10, runtime.Commands.Count);
-        AssertEqual(8, runtime.Queries.Count);
+        AssertEqual(9, runtime.Queries.Count);
+        AssertTrue(runtime.Queries.TryResolve(Nexa.Services.Minecraft.Management.InstanceManagementContract.Query, out _));
         AssertTrue(runtime.Queries.TryResolve(MachineCapabilityStateContract.PreflightQuery,
             out XsrQueryId preflightQuery));
         long preflightRevision = host.StateStore.Read<long>(host.StateStore.Resolve(

@@ -4,6 +4,8 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("instance management follows enabled capabilities", Sync(InstanceManagementPagesFollowEnabledCapabilities)),
+        ("instance management reads exact instance", InstanceManagementReadsExactInstance),
         ("telemetry transport reports bounded failures", TelemetryTransportReportsBoundedFailures),
         ("local OptiFine uses static field constants", LocalOptiFineUsesFieldConstants),
         ("resource history requires matching persisted settings", Sync(ResourceHistoryRequiresMatchingPersistedSettings)),

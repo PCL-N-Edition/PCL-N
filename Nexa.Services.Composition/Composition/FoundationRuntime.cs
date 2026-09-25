@@ -1,6 +1,7 @@
 using Nexa.Services.Accounts;
 using Nexa.Services.Capabilities;
 using Nexa.Services.Foundation;
+using Nexa.Services.Minecraft.Management;
 using Nexa.Services.Settings;
 using Nexa.Services.Telemetry;
 using Nexa.Xsr.Runtime;
@@ -96,6 +97,8 @@ public static class FoundationRuntimeComposer
         XsrCommandRouter commandRouter = commands.Build(dispatchObserver, timeProvider);
 
         XsrQueryRouterBuilder queries = new();
+        queries.Register<InstanceManagementQuery, InstanceManagementSnapshot>(InstanceManagementContract.Query,
+            async (query, token) => Nexa.Xsr.XsrResult.Success(await InstanceManagementService.ReadAsync(query, token).ConfigureAwait(false)));
         queries.Register(
             FoundationRouteIds.SettingsGet,
             FoundationQueries.CreateSettingsGetHandler(host.Settings));
