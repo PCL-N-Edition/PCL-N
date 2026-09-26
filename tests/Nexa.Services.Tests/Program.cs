@@ -51,6 +51,7 @@ internal static partial class Program
         ("recovery baselines require a confirmed successful session", Sync(RecoveryBaselineRequiresConfirmedSuccess)),
         ("mod toggles guard files and running directory identities", ModTogglePreservesFilesAndGuardsIdentity),
         ("instance content enumeration is bounded and cancellable", Sync(InstanceContentIsBoundedAndCancellable)),
+        ("recovery recognizes launcher mod toggles and restores both paths", RecoveryRecognizesLauncherModTogglesAndRestoresBothPaths),
         ("loader installs are independent unless opted into inheritance", LoaderInstallsAreIndependentUnlessOptedIn),
         ("instance management follows enabled capabilities", Sync(InstanceManagementPagesFollowEnabledCapabilities)),
         ("instance management reads exact instance", InstanceManagementReadsExactInstance),

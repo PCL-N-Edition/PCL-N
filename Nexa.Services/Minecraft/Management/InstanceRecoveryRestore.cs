@@ -72,7 +72,8 @@ public sealed partial class InstanceRecoveryService
             var snapshotStore = new RecoverySnapshotStore(instance, snapshot.GameDirectory);
             var files = new List<RecoveryFileEdit>();
             var budget = new RecoveryByteBudget(RecoveryBlobStore.MaxTransactionBytes);
-            foreach (var change in selected.Where(item => item.SettingKey is null))
+            foreach (var change in selected.Where(item => item.SettingKey is null)
+                .SelectMany(item => item.RelatedPath is null ? new[] { item } : new[] { item, item with { Path = item.RelatedPath, RelatedPath = null } }))
             {
                 var source = new RecoverySource(change.Area ?? throw new InvalidDataException("恢复条目缺少区域。"), change.Path);
                 string path = snapshotStore.ResolveSource(source);

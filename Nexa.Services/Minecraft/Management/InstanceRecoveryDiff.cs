@@ -7,11 +7,12 @@ using Nexa.Xsr;
 
 namespace Nexa.Services.Minecraft.Management;
 
-public enum InstanceRecoveryChangeKind { Added, Removed, Modified }
+public enum InstanceRecoveryChangeKind { Added, Removed, Modified, Enabled, Disabled }
 public sealed record InstanceRecoveryQuery(string InstanceDirectory);
 public sealed record InstanceRecoveryChange(InstanceRecoveryChangeKind Kind, string Category, string Path, string? SettingKey = null)
 {
     public string? Area { get; init; }
+    public string? RelatedPath { get; init; }
 }
 public sealed record InstanceRecoveryReport(string InstanceDirectory, Guid? BaselineRevision, DateTimeOffset? CapturedAt,
     IReadOnlyList<InstanceRecoveryChange> Changes, string Fingerprint, string? UnavailableReason = null);
@@ -74,6 +75,24 @@ public sealed partial class InstanceRecoveryService
                 }
                 foreach (var pair in current)
                     if (!previous.ContainsKey(pair.Key)) changes.Add(FileChange(InstanceRecoveryChangeKind.Added, pair.Value.Source));
+                // A toggle is a content-preserving rename, not a deleted mod and an unrelated addition.
+                var addedMods = changes.Where(item => item.Kind == InstanceRecoveryChangeKind.Added && item.Category == "模组")
+                    .ToDictionary(item => snapshotStore.ResolveSource(new(item.Area!, item.Path)), MinecraftLibraryService.PathComparer);
+                HashSet<InstanceRecoveryChange> paired = [];
+                List<InstanceRecoveryChange> toggles = [];
+                foreach (var removed in changes.Where(item => item.Kind == InstanceRecoveryChangeKind.Removed && item.Category == "模组").ToArray())
+                {
+                    bool? enabled = InstanceContentService.ModEnabled(removed.Path);
+                    if (enabled is null) continue;
+                    string oldPath = snapshotStore.ResolveSource(new(removed.Area!, removed.Path));
+                    string newPath = enabled.Value ? oldPath + ".disabled" : oldPath[..^9];
+                    if (!addedMods.TryGetValue(newPath, out var added) || added.Area != removed.Area) continue;
+                    if (previous[oldPath].Blob != current[newPath].Blob) continue;
+                    paired.Add(removed); paired.Add(added);
+                    toggles.Add(removed with { Kind = enabled.Value ? InstanceRecoveryChangeKind.Disabled : InstanceRecoveryChangeKind.Enabled, RelatedPath = added.Path });
+                }
+                changes.RemoveAll(paired.Contains);
+                changes.AddRange(toggles);
                 var before = JsonNode.Parse(baseline.SettingsDocument)?["values"] as JsonObject ?? throw new InvalidDataException("快照启动设置无效。");
                 var after = JsonNode.Parse(currentSettings)!["values"]!.AsObject();
                 foreach (string key in before.Select(pair => pair.Key).Concat(after.Select(pair => pair.Key)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))

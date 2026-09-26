@@ -81,3 +81,18 @@ bold/italic/underline/strikethrough/reset codes are rendered as styled runs with
 UI.Next text runs carry immutable styled ranges over plain accessible text; the backend applies
 them without interpreting Minecraft syntax. Complete-image raster fitting is opt-in so skin-layer
 composition is unchanged. Local previews retain at most 1024 pixels per decoded dimension.
+
+### Snapshot recognition of mod enable/disable
+
+Comparison includes both enabled and disabled mod files. An exact-content rename between a
+`.jar`/`.litemod` and its `.disabled` counterpart is projected as one enable/disable change,
+with both relative paths in the same area. Single-item rollback restores both paths within
+the existing validated recovery transaction. Different bytes or an existing counterpart are
+ordinary file changes, not guessed toggles. Entering snapshot storage always requests a fresh
+comparison, including after launcher settings and content operations.
+
+Resource-pack identity uses the filename without its trailing `.zip` as the primary label.
+The formatted pack description is secondary (two lines in a list, wrapped in details).
+Unrecognized section-sign sequences remain literal text. Content cards keep their painted
+surface separate from the padded inner container, so icons and actions have equal insets;
+virtual row extents include the inter-card margin and screenshot cards use the same rule.
