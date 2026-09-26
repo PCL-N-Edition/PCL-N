@@ -78,6 +78,18 @@ internal static partial class Program
         AssertTrue(control.HasDecodedRaster);
         AssertTrue(control.Node.RasterImage!.FitToBounds);
 
+        using (var pixels = new SkiaSharp.SKBitmap(16, 16))
+        {
+            pixels.Erase(SkiaSharp.SKColors.CornflowerBlue);
+            using var encoded = SkiaSharp.SKImage.FromBitmap(pixels);
+            using var webp = encoded.Encode(SkiaSharp.SKEncodedImageFormat.Webp, 90);
+            var preview = PngImage.TryCreateResourceIcon(webp.ToArray());
+            AssertTrue(preview is not null);
+            media.Raster = new(preview!, [new(new(0, 0, 16, 16), new(0, 0, 1, 1))]) { FitToBounds = true };
+            shell.Tree.MarkDirty(image, XsrUiDirtyKinds.Paint); surface.CommitScene();
+            AssertTrue(control.HasDecodedRaster);
+        }
+
         media.Raster = null; shell.Tree.MarkDirty(image, XsrUiDirtyKinds.Paint); surface.CommitScene();
         AssertFalse(control.HasDecodedRaster);
         AssertEqual("pcl/avatar/steve", control.Node.ImageSource);

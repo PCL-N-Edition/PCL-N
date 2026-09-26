@@ -32,8 +32,10 @@ internal sealed class ResourcesPageController : IDisposable
     private readonly List<XsrUiEntityId> _detailActions = [];
     private readonly XsrUiEntityId _search, _game, _loader, _status, _previous, _next, _detailBody;
     private CancellationTokenSource _stop = new();
+    private CancellationTokenSource _iconStop = new();
     private Task<XsrResult<ResourceSearchResult>>? _searching;
     private Task<XsrResult<ResourceDetail>>? _reading;
+    private readonly List<(XsrUiEntityId Entity, Task<XsrResult<ResourceIconResult>> Read)> _icons = [];
     private Task<XsrResult<MinecraftInstallEditSnapshot>>? _instanceReading;
     private MinecraftInstallEditQuery? _instanceRequest;
     private XsrQueryRouter? _instanceQueries;
@@ -61,25 +63,27 @@ internal sealed class ResourcesPageController : IDisposable
         shell.Tree.Walk(Page, entity => { _entities[shell.Tree.Name(entity)] = entity; return true; });
         shell.Tree.SetComponent(_entities["ResourceList"], new XsrUiScrollGesture());
         Segment(_entities["ResourceCategories"], "ResourceCategory", ["模组", "整合包", "资源包", "光影", "数据包"], index =>
-        { _filter = _filter with { Kind = (ResourceKind)index }; Search(0); });
+        { _filter = _filter with { Kind = (ResourceKind)index }; Search(0); }, 70);
+        var header = _entities["ResourceCategories"];
+        E(Element(header, "ResourceHeaderSpace")).Weight = 1;
+        Segment(header, "ResourceOrder", ["相关", "热门", "更新"], index =>
+        { _filter = _filter with { Order = (ResourceOrder)index }; Search(0); }, 54);
         var toolbar = _entities["ResourceToolbar"];
         _search = Input(toolbar, "ResourceSearch", "搜索资源", 0); E(_search).Weight = 1;
-        Button(toolbar, "ResourceSearchButton", "搜索", 72, () => Search(0));
-        Button(toolbar, "ResourceCurrentInstance", "当前版本", 88, UseCurrentInstance);
-        Button(toolbar, "ResourceReset", "重置", 64, () =>
+        _game = Input(toolbar, "ResourceGame", "游戏版本", 104);
+        _loader = Input(toolbar, "ResourceLoader", "加载器", 100);
+        Button(toolbar, "ResourceSearchButton", "搜索", 56, () => Search(0));
+        Button(toolbar, "ResourceCurrentInstance", "当前版本", 76, UseCurrentInstance);
+        Button(toolbar, "ResourceReset", "重置", 48, () =>
         {
             foreach (var input in new[] { _search, _game, _loader }) _shell.Renderer.SetTextInputValue(input, "");
             Search(0);
         });
-        var filters = _entities["ResourceFilters"];
-        _game = Input(filters, "ResourceGame", "Minecraft 版本", 144);
-        _loader = Input(filters, "ResourceLoader", "加载器，如 fabric", 160);
-        Segment(filters, "ResourceOrder", ["相关", "热门", "更新"], index =>
-        { _filter = _filter with { Order = (ResourceOrder)index }; Search(0); }, 58);
         var pagination = _entities["ResourcePagination"];
-        _status = Text(pagination, "Modrinth", 12, Muted, 32); E(_status).Weight = 1;
-        _previous = Button(pagination, "ResourcePrevious", "上一页", 76, () => Search(Math.Max(0, _filter.Page - 1)));
-        _next = Button(pagination, "ResourceNext", "下一页", 76, () => Search(_filter.Page + 1));
+        _status = Text(pagination, "Modrinth", 12, Muted, 28); E(_status).Weight = 1;
+        _previous = Button(pagination, "ResourcePrevious", "上一页", 68, () => Search(Math.Max(0, _filter.Page - 1)));
+        _next = Button(pagination, "ResourceNext", "下一页", 68, () => Search(_filter.Page + 1));
+        E(_previous).Height = 28; E(_next).Height = 28;
         DetailPage = Element(default, "ResourceDetailPage", XsrUiSemanticRole.Page, "资源详情");
         _detailBody = Stack(DetailPage, "ResourceDetailBody"); E(_detailBody).Weight = 1; E(_detailBody).Padding = new(24, 20, 24, 24);
         shell.Tree.SetComponent(_detailBody, new XsrUiScroll { ShowsVerticalIndicator = true });
@@ -103,14 +107,27 @@ internal sealed class ResourcesPageController : IDisposable
             else
             {
                 content.Padding = _previousPadding;
-                if (_searching is not null) _started = false;
-                Cancel();
+                if (_searching is not null || _icons.Count > 0) _started = false;
+                Cancel(); CancelIcons();
             }
             _visible = visible; _shell.Tree.MarkDirty(_shell.Content, XsrUiDirtyKinds.Layout);
         }
         if (!visible) return;
+        for (int i = _icons.Count - 1; i >= 0; i--)
+        {
+            var (entity, read) = _icons[i];
+            if (!read.IsCompleted) continue;
+            _icons.RemoveAt(i);
+            if (read.IsCompletedSuccessfully && read.Result.IsSuccess && read.Result.Value?.Image is { } image)
+            {
+                _shell.Tree.GetComponent<XsrUiImage>(entity)!.Raster = new(image,
+                    [new(new(0, 0, image.Width, image.Height), new(0, 0, 1, 1))])
+                { FitToBounds = true };
+                _shell.Tree.MarkDirty(entity, XsrUiDirtyKinds.Paint);
+            }
+        }
         _shell.Tree.GetComponent<XsrUiInput>(_entities["ResourceCurrentInstance"])!.Enabled = _instanceReading is null && _selectedInstance?.Invoke() is not null;
-        if (!_started) { _started = true; Search(0); }
+        if (!_started) { _started = true; Search(_filter.Page); }
         while (_pending.TryDequeue(out var source)) if (_actions.TryGetValue(source, out var action)) action();
         if (_instanceReading is { IsCompleted: true } instanceReading)
         {
@@ -147,7 +164,7 @@ internal sealed class ResourcesPageController : IDisposable
     private string Draft(XsrUiEntityId entity) => _shell.Tree.GetComponent<XsrUiTextInput>(entity)!.ReadDraft().Trim();
     private void Search(int page)
     {
-        Cancel(); _result = null;
+        Cancel(); CancelIcons(); _result = null;
         _filter = _filter with { Text = Draft(_search), GameVersion = Draft(_game), Loader = Draft(_loader), Page = page };
         Clear(_entities["ResourceList"], _listActions);
         Text(_entities["ResourceList"], "正在加载资源…", 14, Muted, 54);
@@ -175,10 +192,15 @@ internal sealed class ResourcesPageController : IDisposable
                 ResourceKind.Shader => "nexa/content-shader",
                 _ => "nexa/content-package"
             }));
+            if (project.IconUrl is { } url && _queries.TryResolve(ResourceCatalogContract.Icon, out var iconRoute))
+            {
+                var read = _queries.QueryAsync<ResourceIconQuery, ResourceIconResult>(iconRoute, new(url), cancellationToken: _iconStop.Token).AsTask();
+                _icons.Add((icon, read)); Wake(read);
+            }
             var copy = Stack(row, "ResourceProjectCopy"); E(copy).Weight = 1;
-            Text(copy, project.Title, 17, Ink, 28, 600);
-            Text(copy, project.Description, 13, Muted, 38, lines: 2);
-            Text(copy, $"{project.Author}  ·  {project.Downloads:N0} 次下载", 12, Muted, 22);
+            Text(copy, project.Title, 15, Ink, 22, 600);
+            Text(copy, project.Description, 12, Muted, 20);
+            Text(copy, $"{project.Author}  ·  {project.Downloads:N0} 次下载", 11, Muted, 18);
             _listActions.Add(Button(row, "ResourceDetails." + project.Id, "详情", 68, () =>
             {
                 _detailPage = 0; _shell.Stage.Navigation.Push(DetailPage); ReadDetail(project.Id);
@@ -220,8 +242,8 @@ internal sealed class ResourcesPageController : IDisposable
         if (detail.Versions.Count > 20)
         {
             var pages = Stack(_detailBody, "ResourceVersionPages", horizontal: true);
-            var previous = Button(pages, "ResourceVersionPrevious", "上一页", 76, () => { _detailPage--; ShowDetail(); });
-            var next = Button(pages, "ResourceVersionNext", "下一页", 76, () => { _detailPage++; ShowDetail(); });
+            var previous = Button(pages, "ResourceVersionPrevious", "上一页", 68, () => { _detailPage--; ShowDetail(); });
+            var next = Button(pages, "ResourceVersionNext", "下一页", 68, () => { _detailPage++; ShowDetail(); });
             _detailActions.Add(previous); _detailActions.Add(next);
             _shell.Tree.GetComponent<XsrUiInput>(previous)!.Enabled = _detailPage > 0; _shell.Tree.GetComponent<XsrUiInput>(next)!.Enabled = (_detailPage + 1) * 20 < detail.Versions.Count;
             Text(pages, $"{_detailPage + 1} / {(detail.Versions.Count + 19) / 20}", 12, Muted, 34);
@@ -252,6 +274,7 @@ internal sealed class ResourcesPageController : IDisposable
         Wake(_instanceReading);
     }
     private void Cancel() { _stop.Cancel(); _stop.Dispose(); _stop = new(); _searching = null; _reading = null; _instanceReading = null; }
+    private void CancelIcons() { _iconStop.Cancel(); _iconStop.Dispose(); _iconStop = new(); _icons.Clear(); }
     private void Wake(Task task) => _ = task.ContinueWith(_ =>
     {
         if (_disposed) return;
@@ -280,8 +303,8 @@ internal sealed class ResourcesPageController : IDisposable
     }
     private XsrUiEntityId Card(XsrUiEntityId parent, string name)
     {
-        var surface = Stack(parent, name); Style(surface, White, Ink, 14);
-        var body = Stack(surface, name + ".Body", true); E(body).Padding = new(18, 12, 18, 12); return body;
+        var surface = Stack(parent, name); Style(surface, White, Ink, 10);
+        var body = Stack(surface, name + ".Body", true); E(body).Padding = new(12, 8, 12, 8); return body;
     }
     private XsrUiEntityId Text(XsrUiEntityId parent, string value, double size, XsrUiColor color, double height, double weight = 400, int lines = 1)
     {
@@ -305,7 +328,7 @@ internal sealed class ResourcesPageController : IDisposable
     {
         var surface = Stack(parent, name + ".Surface"); Style(surface, Tint, Ink, 10);
         if (width > 0) E(surface).Width = width; else E(surface).Weight = 1;
-        var entity = Element(surface, name, XsrUiSemanticRole.TextInput, placeholder); E(entity).Height = 36; E(entity).Padding = new(12, 0, 12, 0);
+        var entity = Element(surface, name, XsrUiSemanticRole.TextInput, placeholder); E(entity).Height = 34; E(entity).Padding = new(10, 0, 10, 0);
         _shell.Tree.SetComponent(entity, new XsrUiInput { Focusable = true, Clickable = true });
         _shell.Tree.SetComponent(entity, new XsrUiTextInput { Placeholder = placeholder }); Style(entity, XsrUiColor.Transparent, Ink, 0);
         return entity;
@@ -345,5 +368,5 @@ internal sealed class ResourcesPageController : IDisposable
         });
         _shell.Tree.MarkDirty(entity, XsrUiDirtyKinds.Paint);
     }
-    public void Dispose() { _disposed = true; _stop.Cancel(); _stop.Dispose(); _intents.IntentEmitted -= OnIntent; _shell.Renderer.FramePreparing -= OnFrame; }
+    public void Dispose() { _disposed = true; _iconStop.Cancel(); _iconStop.Dispose(); _stop.Cancel(); _stop.Dispose(); _intents.IntentEmitted -= OnIntent; _shell.Renderer.FramePreparing -= OnFrame; }
 }

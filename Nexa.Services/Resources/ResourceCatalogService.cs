@@ -101,7 +101,8 @@ public sealed class ResourceCatalogService(HttpClient http) : IResourceCatalogSo
     }
 
     private static ResourceProject Project(JsonElement item, string id) => new(id, Text(item, "title"),
-        Text(item, "description"), Text(item, "author"), Number(item, "downloads"), "https://modrinth.com/project/" + id);
+        Text(item, "description"), Text(item, "author"), Number(item, "downloads"), "https://modrinth.com/project/" + id)
+    { IconUrl = ResourceIconService.IsAllowed(Text(item, "icon_url")) ? Text(item, "icon_url") : null };
     private static bool Identifier(string value) => value.Length is > 0 and <= 64 && value.All(char.IsAsciiLetterOrDigit);
     private static void ValidateFilter(string value, int max)
     {

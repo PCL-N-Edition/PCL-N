@@ -1,9 +1,8 @@
 <Page xmlns="https://pcln.dev/pxml/2026" Key="ResourcesPage" Label="资源">
-  <StackPanel Key="ResourcesLayout" Orientation="Vertical" Weight="1" Spacing="12" Padding="24,20,24,24">
-    <StackPanel Key="ResourceCategories" Orientation="Horizontal" Height="40" Spacing="0" />
-    <StackPanel Key="ResourceToolbar" Orientation="Horizontal" Height="40" Spacing="10" />
-    <StackPanel Key="ResourceFilters" Orientation="Horizontal" Height="36" Spacing="10" />
-    <StackPanel Key="ResourceList" Orientation="Vertical" Weight="1" MinHeight="80" Spacing="10" Scroll="true" />
-    <StackPanel Key="ResourcePagination" Orientation="Horizontal" Height="34" Spacing="10" />
+  <StackPanel Key="ResourcesLayout" Orientation="Vertical" Weight="1" Spacing="8" Padding="16,12,16,8">
+    <StackPanel Key="ResourceCategories" Orientation="Horizontal" Height="34" Spacing="8" />
+    <StackPanel Key="ResourceToolbar" Orientation="Horizontal" Height="36" Spacing="6" />
+    <StackPanel Key="ResourceList" Orientation="Vertical" Weight="1" MinHeight="80" Spacing="6" Scroll="true" />
+    <StackPanel Key="ResourcePagination" Orientation="Horizontal" Height="28" Spacing="8" />
   </StackPanel>
 </Page>

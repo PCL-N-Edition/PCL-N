@@ -7,6 +7,35 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static async ValueTask ResourceIconsAreBoundedCachedAndRestrictedToProvider()
+    {
+        byte[] png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=");
+        int calls = 0;
+        using var http = new HttpClient(new ResourceHttp(request =>
+        {
+            calls++;
+            var content = new ByteArrayContent(request.RequestUri!.AbsolutePath.Contains("large", StringComparison.Ordinal) ? new byte[1_048_577] : png);
+            content.Headers.ContentLength = 1;
+            return new(HttpStatusCode.OK) { Content = content };
+        }));
+        using var service = new ResourceIconService(http);
+        AssertTrue((await service.ReadAsync(new("https://cdn.modrinth.com/data/test/icon.png"), default)).Image is not null);
+        AssertTrue((await service.ReadAsync(new("https://cdn.modrinth.com/data/test/icon.png"), default)).Image is not null);
+        AssertEqual(1, calls);
+        foreach (var invalid in new[] { "http://cdn.modrinth.com/data/a", "https://127.0.0.1/data/a", "https://cdn.modrinth.com.evil.test/data/a", "https://name@cdn.modrinth.com/data/a", "https://cdn.modrinth.com:444/data/a" })
+            AssertTrue((await service.ReadAsync(new(invalid), default)).Image is null);
+        AssertEqual(1, calls);
+        AssertTrue((await service.ReadAsync(new("https://cdn.modrinth.com/data/large.png"), default)).Image is null);
+        // Static lossless WebP dimensions, without weakening the PNG-only skin factory.
+        byte[] webp = new byte[30];
+        "RIFF"u8.CopyTo(webp); System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(webp.AsSpan(4), 22);
+        "WEBPVP8L"u8.CopyTo(webp.AsSpan(8)); System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(webp.AsSpan(16), 10);
+        webp[20] = 0x2f;
+        AssertTrue(Nexa.Core.Media.PngImage.TryCreate(webp) is null);
+        AssertEqual(1, Nexa.Core.Media.PngImage.TryCreateResourceIcon(webp)!.Width);
+        webp[21] = 255; webp[22] = 63;
+        AssertTrue(Nexa.Core.Media.PngImage.TryCreateResourceIcon(webp) is null);
+    }
     private static async ValueTask ResourceCatalogFiltersAndValidatesProviderResults()
     {
         var requests = new List<string>();

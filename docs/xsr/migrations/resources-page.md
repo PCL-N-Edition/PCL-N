@@ -11,6 +11,13 @@ HTTP, provider facets, metadata validation and response budgets. Desktop renders
 immutable results and emits intents; it never performs HTTP or calls a concrete
 catalog. Requests are cancellable; superseded results cannot replace current UI.
 The search field survives result publication, preserving selection and focus.
+Resource icons use a separate cancellable sealed query, so image latency never
+delays search results. Only HTTPS cdn.modrinth.com/data/ assets are accepted, with
+redirects disabled, four concurrent reads, a 1 MiB actual-byte limit and a bounded
+32-entry cache. The existing encoded raster carrier gains an explicit resource-icon
+factory for static PNG/WebP (1024px maximum); existing PNG-only factories retain
+their contract. Decoding stays in the backend and invalid images keep a placeholder.
+WebP header reference: https://developers.google.com/speed/webp/docs/riff_container.
 The current-instance filter reuses `MinecraftInstallEditContract.Query` through
 the existing install catalog router; Desktop does not parse version JSON or infer
 Minecraft/loader versions from filenames. A changed selection invalidates its result.

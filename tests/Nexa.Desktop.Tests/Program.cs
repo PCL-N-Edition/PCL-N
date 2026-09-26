@@ -37,6 +37,7 @@ internal static partial class Program
     private static readonly (string Name, Action Body)[] TestCases =
     [
         ("resources page uses service queries and preserves search", ResourcesPageUsesServiceQueriesAndPreservesSearch),
+        ("resource icons arrive without rebuilding search or rows", ResourceIconsArriveWithoutRebuildingSearchOrRows),
         ("resources page discards superseded search and restores navigation", ResourcesPageDiscardsSupersededSearchAndRestoresNavigation),
         ("Install exit failure allows retry after worker becomes terminal", InstallExitFailureAllowsRetryAfterWorkerBecomesTerminal),
         ("Install exit waits for stop and preserves stay choice", InstallExitWaitsForStopAndPreservesStayChoice),

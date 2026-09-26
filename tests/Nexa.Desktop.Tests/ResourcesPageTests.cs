@@ -10,6 +10,33 @@ namespace Nexa.Desktop.Tests;
 
 internal static partial class Program
 {
+    private static void ResourceIconsArriveWithoutRebuildingSearchOrRows()
+    {
+        using var fixture = new LaunchPageFixture(new ImmediateInstanceSource([]));
+        var icon = new TaskCompletionSource<ResourceIconResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var queries = new XsrQueryRouterBuilder();
+        queries.Register<ResourceSearchQuery, ResourceSearchResult>(ResourceCatalogContract.Search,
+            (query, token) => ValueTask.FromResult(XsrResult.Success(new ResourceSearchResult(
+                [new("WithIcon", "With icon", "", "", 1, "https://modrinth.com/project/WithIcon") { IconUrl = "https://cdn.modrinth.com/data/test/icon.png" }], 1, 0))));
+        queries.Register<ResourceIconQuery, ResourceIconResult>(ResourceCatalogContract.Icon, async (query, token) => XsrResult.Success(await icon.Task));
+        using var page = new ResourcesPageController(fixture.Shell, fixture.Intents, queries.Build(new NoopDispatchObserver()), fixture.Store, _ => { });
+        fixture.Shell.Stage.Navigation.Replace(page.Page);
+        fixture.Shell.Renderer.ReducedMotion = true;
+        var scene = fixture.Shell.Render(new(1000, 650));
+        var row = FindByKey(fixture.Shell, scene, "ResourceProject.WithIcon").Entity;
+        var search = FindByKey(fixture.Shell, scene, "ResourceSearch").Entity;
+        var image = FindByKey(fixture.Shell, scene, "ResourceProjectIcon").Entity;
+        AssertTrue(fixture.Shell.Tree.GetComponent<XsrUiImage>(image)!.Raster is null);
+        var png = Nexa.Core.Media.PngImage.TryCreate(Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII="));
+        icon.SetResult(new(png));
+        AssertTrue(SpinWait.SpinUntil(() =>
+        {
+            scene = fixture.Shell.Render(new(1000, 650));
+            return fixture.Shell.Tree.GetComponent<XsrUiImage>(image)!.Raster is not null;
+        }, TimeSpan.FromSeconds(5)));
+        AssertEqual(row, FindByKey(fixture.Shell, scene, "ResourceProject.WithIcon").Entity);
+        AssertEqual(search, FindByKey(fixture.Shell, scene, "ResourceSearch").Entity);
+    }
     private static void ResourcesPageUsesServiceQueriesAndPreservesSearch()
     {
         using var fixture = new LaunchPageFixture(new ImmediateInstanceSource([]));
@@ -27,6 +54,11 @@ internal static partial class Program
         var scene = fixture.Shell.Render(new(1000, 650));
         AssertEqual(page.Page, fixture.Shell.Stage.Navigation.Current);
         var input = FindByKey(fixture.Shell, scene, "ResourceSearch").Entity;
+        var listBounds = FindByKey(fixture.Shell, scene, "ResourceList").Rect;
+        var layoutBounds = FindByKey(fixture.Shell, scene, "ResourcesLayout").Rect;
+        var footerBounds = FindByKey(fixture.Shell, scene, "ResourcePagination").Rect;
+        AssertTrue(listBounds.Y - layoutBounds.Y <= 90);
+        AssertTrue(layoutBounds.Y + layoutBounds.Height - footerBounds.Y - footerBounds.Height <= 1);
         fixture.Shell.Renderer.SetTextInputValue(input, "Sodium");
         Emit(fixture.Intents, "ui.resources.action", page.Find("ResourceSearchButton"));
         scene = fixture.Shell.Render(new(1000, 650));
@@ -37,6 +69,7 @@ internal static partial class Program
         var body = FindByKey(fixture.Shell, scene, "ResourceProject.Valid123.Body");
         AssertTrue(body.Rect.X > card.Rect.X);
         AssertTrue(body.Rect.X + body.Rect.Width < card.Rect.X + card.Rect.Width);
+        AssertTrue(card.Rect.Height <= 84);
         Emit(fixture.Intents, "ui.resources.action", page.Find("ResourceCurrentInstance"));
         scene = fixture.Shell.Render(new(1000, 650));
         AssertEqual("1.21.1", source.Last!.GameVersion);
@@ -51,6 +84,8 @@ internal static partial class Program
         scene = fixture.Shell.Render(new(760, 500));
         AssertEqual(input, FindByKey(fixture.Shell, scene, "ResourceSearch").Entity);
         AssertTrue(FindByKey(fixture.Shell, scene, "ResourceList").Rect.Width > 500);
+        var searchBounds = FindByKey(fixture.Shell, scene, "ResourceSearch").Rect;
+        AssertTrue(searchBounds.Width >= 100);
     }
 
     private sealed class ResourceSource : IResourceCatalogSource
