@@ -129,7 +129,9 @@ internal static partial class Program
             AssertTrue(search.Rect.Width > 250);
             AssertTrue(fixture.Shell.Renderer.PointerPressed(new(search.Rect.X + 20, search.Rect.Y + 18)));
             AssertEqual(search.Entity, fixture.Shell.Renderer.Focused);
-            fixture.Shell.Renderer.SetTextInputValue(search.Entity, "00Pack");
+            fixture.Shell.Renderer.PointerReleased(new(search.Rect.X + 20, search.Rect.Y + 18));
+            AssertEqual(search.Entity, fixture.Shell.Renderer.Focused);
+            AssertTrue(fixture.Shell.Renderer.InsertText("00Pack"));
             scene = fixture.Shell.Render(new(1000, 650));
             AssertTrue(scene.Nodes.Any(node => node.Text == "00Pack"));
             fixture.Shell.Renderer.SetTextInputValue(search.Entity, "Green Pack");

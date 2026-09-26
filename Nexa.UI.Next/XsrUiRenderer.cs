@@ -836,13 +836,17 @@ public sealed partial class XsrUiRenderer
         {
             _focused = default;
         }
-        if (BeginSegmentDrag(point)) return true;
-        bool scrollGesture = BeginScrollGesture(point);
-        bool pagerGesture = BeginPagerGesture(point);
         XsrUiEntityId entity = InputAt(point);
         XsrUiInput? input = entity.IsAssigned ? _tree.GetComponent<XsrUiInput>(entity) : null;
         if (entity.IsAssigned && _tree.GetComponent<XsrUiTextInput>(entity) is not null && IsEnabled(input))
+        {
+            // Native text editing owns the entire gesture, including selection drags.
+            // Arming an ancestor pager here would steal focus again on pointer release.
             return Focus(entity, showIndicator: false);
+        }
+        if (BeginSegmentDrag(point)) return true;
+        bool scrollGesture = BeginScrollGesture(point);
+        bool pagerGesture = BeginPagerGesture(point);
         if (entity.IsAssigned && input is { Clickable: true } && IsEnabled(input))
         {
             _ = Focus(entity, showIndicator: false);

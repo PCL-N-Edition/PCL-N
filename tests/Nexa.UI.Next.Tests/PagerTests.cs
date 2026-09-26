@@ -5,6 +5,41 @@ namespace Nexa.UI.Next.Tests;
 
 internal static partial class Program
 {
+    private static void TextEditingOwnsGesturesInsidePagerAndScroll()
+    {
+        foreach (var direction in new[] { XsrUiOrientation.Horizontal, XsrUiOrientation.Vertical })
+        {
+            var (tree, renderer, root, pages) = CreatePagerFixture(direction: direction);
+            tree.SetComponent(pages[0], new XsrUiStackPanel(XsrUiOrientation.Vertical));
+            tree.SetComponent(pages[0], new XsrUiScroll());
+            var search = tree.Create("search");
+            tree.SetComponent(search, new XsrUiElement { Height = 40 });
+            tree.SetComponent(search, new XsrUiInput { Focusable = true });
+            tree.SetComponent(search, new XsrUiTextInput());
+            tree.Attach(search, pages[0]);
+            var overflow = tree.Create("overflow");
+            tree.SetComponent(overflow, new XsrUiElement { Height = 500 });
+            tree.Attach(overflow, pages[0]);
+            _ = renderer.Render();
+            XsrUiPoint start = new(10, 20), end = new(150, 80);
+            AssertTrue(renderer.PointerPressed(start));
+            renderer.PointerReleased(start);
+            AssertEqual(search, renderer.Focused);
+            AssertTrue(renderer.InsertText("Search"));
+            AssertTrue(renderer.PointerPressed(start));
+            renderer.PointerMoved(end);
+            renderer.PointerReleased(end);
+            AssertEqual(search, renderer.Focused);
+            AssertEqual(0d, tree.GetComponent<XsrUiPager>(root)!.Position);
+            AssertEqual(0d, tree.GetComponent<XsrUiScroll>(pages[0])!.OffsetY);
+            AssertTrue(renderer.PointerPressed(start));
+            renderer.CancelPointerGesture();
+            AssertEqual(search, renderer.Focused);
+            AssertTrue(renderer.InsertText(" text"));
+            AssertEqual("Search text", tree.GetComponent<XsrUiTextInput>(search)!.ReadDraft());
+        }
+    }
+
     private static (XsrUiTree Tree, XsrUiRenderer Renderer, XsrUiEntityId Root, XsrUiEntityId[] Pages)
         CreatePagerFixture(int count = 3, XsrUiOrientation direction = XsrUiOrientation.Vertical)
     {

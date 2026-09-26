@@ -98,3 +98,8 @@ The formatted pack description is secondary (two lines in a list, wrapped in det
 Unrecognized section-sign sequences remain literal text. Content cards keep their painted
 surface separate from the padded inner container, so icons and actions have equal insets;
 virtual row extents include the inter-card margin and screenshot cards use the same rule.
+
+Text inputs own pointer gestures before ancestor scroll and pager recognizers are armed.
+A full click retains input focus after release, and text selection cannot drag the containing
+page. Regression coverage includes the real management search click and typing, renderer
+press/move/release and cancellation, and native captured selection followed by replacement.

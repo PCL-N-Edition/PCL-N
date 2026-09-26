@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Automation.Peers;
 using Avalonia.Automation.Provider;
 using Avalonia.Headless;
@@ -16,7 +17,12 @@ internal static partial class Program
     {
         XsrUiEntityId previous = shell.Stage.Navigation.Current;
         XsrUiEntityId page = shell.Tree.Create("text-input-test");
-        shell.Tree.SetComponent(page, new XsrUiStackPanel(XsrUiOrientation.Vertical));
+        shell.Tree.SetComponent(page, new XsrUiPager(XsrUiOrientation.Horizontal));
+        shell.Tree.SetComponent(page, new XsrUiInput { Focusable = true });
+        XsrUiEntityId form = shell.Tree.Create("text-input-form");
+        shell.Tree.SetComponent(form, new XsrUiStackPanel(XsrUiOrientation.Vertical));
+        shell.Tree.SetComponent(form, new XsrUiScroll());
+        shell.Tree.Attach(form, page);
         XsrUiEntityId Add(string name, bool password)
         {
             XsrUiEntityId entity = shell.Tree.Create(name);
@@ -24,13 +30,17 @@ internal static partial class Program
             shell.Tree.SetComponent(entity, new XsrUiTextInput { IsPassword = password, Placeholder = name });
             shell.Tree.SetComponent(entity, new XsrUiInput { Focusable = true });
             shell.Tree.SetComponent(entity, new XsrUiSemantic(XsrUiSemanticRole.TextInput, name));
-            shell.Tree.Attach(entity, page);
+            shell.Tree.Attach(entity, form);
             return entity;
         }
         XsrUiEntityId name = Add("名称", false), password = Add("密码", true);
         shell.Stage.Navigation.Replace(page);
         surface.CommitScene(); window.UpdateLayout();
-        AssertTrue(shell.Renderer.Focus(name)); surface.CommitScene();
+        var rect = Node(surface.Scene!, name).Rect;
+        Point start = surface.TranslatePoint(new Point(rect.X + 4, rect.Y + 20), window)!.Value;
+        window.MouseDown(start, MouseButton.Left);
+        window.MouseUp(start, MouseButton.Left);
+        AssertEqual(name, shell.Renderer.Focused);
         window.KeyTextInput("你好");
         AssertEqual("你好", shell.Tree.GetComponent<XsrUiTextInput>(name)!.ReadDraft());
         AvaloniaUiSceneNodeControl Control(XsrUiEntityId entity) => surface.GetVisualDescendants()
@@ -39,6 +49,17 @@ internal static partial class Program
         AssertEqual("你好", namePeer.Value);
         namePeer.SetValue("Player");
         AssertEqual("Player", shell.Tree.GetComponent<XsrUiTextInput>(name)!.ReadDraft());
+        // A second press on an already focused input must retain capture for selection.
+        Point end = start.WithX(start.X + 160);
+        window.MouseDown(start, MouseButton.Left);
+        window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+        window.MouseUp(end, MouseButton.Left);
+        AssertEqual(name, shell.Renderer.Focused);
+        AssertEqual("Player", shell.Renderer.CopySelectedText()!);
+        AssertFalse(shell.Tree.GetComponent<XsrUiPager>(page)!.IsDragging);
+        AssertEqual(0d, shell.Tree.GetComponent<XsrUiPager>(page)!.Position);
+        window.KeyTextInput("Alex");
+        AssertEqual("Alex", shell.Tree.GetComponent<XsrUiTextInput>(name)!.ReadDraft());
         window.KeyPress(Key.Tab, RawInputModifiers.None, PhysicalKey.Tab, null);
         AssertEqual(password, shell.Renderer.Focused);
         window.KeyTextInput("secret");
