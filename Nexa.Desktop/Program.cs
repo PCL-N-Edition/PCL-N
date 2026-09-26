@@ -296,6 +296,16 @@ internal static class Program
         var updateQueries = NexaUpdateRuntimeComposer.Compose(updateService);
         settingsPage.ConfigureUpdates(updateQueries, new(buildInfo.ProductVersion, updateRid, updateChannel), platformActions.OpenHttpsUri);
         launchPage.SettingsPage = settingsPage.Page;
+        using var resourcesRuntime = ResourceCatalogRuntimeComposer.Compose();
+        using var resourcesPage = new ResourcesPageController(shell, uiIntents, resourcesRuntime.Queries,
+            host.StateStore, platformActions.OpenHttpsUri);
+        launchPage.ResourcesPage = resourcesPage.Page;
+        resourcesPage.ConfigureInstanceFilter(installCatalog.Queries, () =>
+        {
+            var selected = ((MinecraftLibrarySnapshot?)host.StateStore.ReadAppliedValue(host.StateStore.Resolve(MinecraftLibraryService.StateKey)))?.SelectedInstance;
+            return selected is null ? null : new Nexa.Services.Minecraft.Install.MinecraftInstallEditQuery(
+                Path.GetDirectoryName(Path.GetDirectoryName(selected.DirectoryPath))!, selected.Id);
+        });
         using SettingsPageController versionSettings = new(shell, uiIntents, runtime.Queries, runtime.Commands, host.StateStore, feedback,
             () => ((MinecraftLibrarySnapshot?)host.StateStore.ReadAppliedValue(host.StateStore.Resolve(MinecraftLibraryService.StateKey)))?.SelectedInstance?.DirectoryPath);
         launchPage.VersionSettingsPage = versionSettings.Page;

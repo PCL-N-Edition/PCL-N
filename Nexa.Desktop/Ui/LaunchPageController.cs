@@ -601,7 +601,12 @@ internal sealed partial class LaunchPageController : IDisposable
         }
         else if (IsDestinationCommand(command))
         {
-            ShowPlaceholder(command.Value == "ui.navigation.settings");
+            if (command.Value == "ui.navigation.community" && ResourcesPage.IsAssigned)
+            {
+                ClearSubpageHistory();
+                _shell.Stage.Navigation.Replace(ResourcesPage);
+            }
+            else ShowPlaceholder(command.Value == "ui.navigation.settings");
         }
     }
 
@@ -1600,6 +1605,7 @@ internal sealed partial class LaunchPageController : IDisposable
         set { _shell.Tree.Destroy(_versionSettingsPage); _versionSettingsPage = value; }
     }
     internal XsrUiEntityId SettingsPage { get; set; }
+    internal XsrUiEntityId ResourcesPage { get; set; }
 
     private void ShowPlaceholder(bool settings = false)
     {

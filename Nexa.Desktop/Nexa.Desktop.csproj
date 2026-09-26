@@ -12,6 +12,7 @@
     <EmbeddedResource Include="Ui/Shell.pxml" />
     <EmbeddedResource Include="Ui/FirstRunPage.pxml" />
     <EmbeddedResource Include="Ui/SettingsPage.pxml" />
+    <EmbeddedResource Include="Ui/ResourcesPage.pxml" />
     <EmbeddedResource Include="Ui/LaunchPage.pxml" />
     <EmbeddedResource Include="Ui/JavaChoicePage.pxml" />
     <EmbeddedResource Include="Ui/InstallPage.pxml" />

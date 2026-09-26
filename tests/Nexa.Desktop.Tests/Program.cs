@@ -36,6 +36,8 @@ internal static partial class Program
 
     private static readonly (string Name, Action Body)[] TestCases =
     [
+        ("resources page uses service queries and preserves search", ResourcesPageUsesServiceQueriesAndPreservesSearch),
+        ("resources page discards superseded search and restores navigation", ResourcesPageDiscardsSupersededSearchAndRestoresNavigation),
         ("Install exit failure allows retry after worker becomes terminal", InstallExitFailureAllowsRetryAfterWorkerBecomesTerminal),
         ("Install exit waits for stop and preserves stay choice", InstallExitWaitsForStopAndPreservesStayChoice),
         ("Java only installation guards close until stopped", JavaOnlyInstallationGuardsCloseUntilStopped),
