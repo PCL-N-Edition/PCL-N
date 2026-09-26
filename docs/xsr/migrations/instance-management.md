@@ -92,6 +92,8 @@ ordinary file changes, not guessed toggles. Entering snapshot storage always req
 comparison, including after launcher settings and content operations.
 
 Resource-pack identity uses the filename without its trailing `.zip` as the primary label.
+Both the list and detail title render legacy formatting codes, and search matches the visible
+title as well as the original filename; filesystem identities retain the original bytes.
 The formatted pack description is secondary (two lines in a list, wrapped in details).
 Unrecognized section-sign sequences remain literal text. Content cards keep their painted
 surface separate from the padded inner container, so icons and actions have equal insets;

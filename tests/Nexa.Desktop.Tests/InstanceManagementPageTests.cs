@@ -26,7 +26,7 @@ internal static partial class Program
         File.WriteAllBytes(Path.Combine(instance, "screenshots", "screen.png"), Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6xN8AAAAASUVORK5CYII="));
         Directory.CreateDirectory(Path.Combine(instance, "saves", "My World"));
         File.Delete(Path.Combine(resourcepacks, "pack-000.zip"));
-        using (var archive = System.IO.Compression.ZipFile.Open(Path.Combine(resourcepacks, "pack-000.zip"), System.IO.Compression.ZipArchiveMode.Create))
+        using (var archive = System.IO.Compression.ZipFile.Open(Path.Combine(resourcepacks, "00§a§lPack.zip"), System.IO.Compression.ZipArchiveMode.Create))
         using (var writer = new StreamWriter(archive.CreateEntry("pack.mcmeta").Open()))
             writer.Write("""{"pack":{"description":"§aGreen §l§o§nPack\n附加§?说明","pack_format":34}}""");
         string vanilla = Path.Combine(root, "versions", "vanilla");
@@ -103,11 +103,13 @@ internal static partial class Program
             scene = fixture.Shell.Render(new(1000, 650));
             scene = fixture.Shell.Render(new(1000, 650));
             AssertEqual("resourcepacks", settings.SelectedSection);
-            AssertTrue(scene.Nodes.Any(node => node.Text == "pack-000"));
-            var packTitle = scene.Nodes.Single(node => node.Text == "pack-000");
+            AssertTrue(scene.Nodes.Any(node => node.Text == "00Pack"));
+            var packTitle = scene.Nodes.Single(node => node.Text == "00Pack");
+            AssertEqual(2, packTitle.TextRuns!.Count);
+            AssertTrue(packTitle.TextRuns[1].Bold);
             var firstRow = scene.Nodes.First(node => fixture.Shell.Tree.Name(node.Entity) == "ManagementContentRow");
             var icon = scene.Nodes.First(node => fixture.Shell.Tree.Name(node.Entity) == "ManagementContentIcon");
-            var details = FindByKey(fixture.Shell, scene, "ManagementContentDetails.pack-000.zip");
+            var details = FindByKey(fixture.Shell, scene, "ManagementContentDetails.00§a§lPack.zip");
             AssertTrue(Math.Abs(icon.Rect.X - firstRow.Rect.X - 16) < .01);
             AssertTrue(Math.Abs(firstRow.Rect.X + firstRow.Rect.Width - details.Rect.X - details.Rect.Width - 16) < .01);
             var formattedName = scene.Nodes.Single(node => node.Text == "Green Pack\n附加§?说明");
@@ -115,6 +117,11 @@ internal static partial class Program
             AssertEqual(2, formattedName.TextRuns!.Count);
             AssertTrue(formattedName.TextRuns[1].Bold && formattedName.TextRuns[1].Italic && formattedName.TextRuns[1].Underline);
             AssertFalse(scene.Nodes.Any(node => node.Text?.Contains("§a", StringComparison.Ordinal) == true));
+            Emit(fixture.Intents, "ui.settings.management.action", details.Entity);
+            scene = fixture.Shell.Render(new(1000, 650));
+            AssertTrue(scene.Nodes.Single(node => node.Text == "00Pack").TextRuns![1].Bold);
+            Emit(fixture.Intents, "ui.settings.management.action", FindByKey(fixture.Shell, scene, "Management.返回列表").Entity);
+            scene = fixture.Shell.Render(new(1000, 650));
             Emit(fixture.Intents, "ui.settings.management.action", FindByKey(fixture.Shell, scene, "Management.打开文件夹").Entity);
             scene = fixture.Shell.Render(new(1000, 650));
             AssertEqual(resourcepacks, openedDirectory!);
@@ -122,6 +129,9 @@ internal static partial class Program
             AssertTrue(search.Rect.Width > 250);
             AssertTrue(fixture.Shell.Renderer.PointerPressed(new(search.Rect.X + 20, search.Rect.Y + 18)));
             AssertEqual(search.Entity, fixture.Shell.Renderer.Focused);
+            fixture.Shell.Renderer.SetTextInputValue(search.Entity, "00Pack");
+            scene = fixture.Shell.Render(new(1000, 650));
+            AssertTrue(scene.Nodes.Any(node => node.Text == "00Pack"));
             fixture.Shell.Renderer.SetTextInputValue(search.Entity, "Green Pack");
             scene = fixture.Shell.Render(new(1000, 650));
             AssertTrue(scene.Nodes.Any(node => node.Text == "Green Pack\n附加§?说明"));
@@ -130,7 +140,7 @@ internal static partial class Program
             scene = fixture.Shell.Render(new(1000, 650));
             AssertEqual(search.Entity, fixture.Shell.Renderer.Focused);
             AssertTrue(scene.Nodes.Any(node => node.Text == "pack-219"));
-            AssertFalse(scene.Nodes.Any(node => node.Text == "pack-000"));
+            AssertFalse(scene.Nodes.Any(node => node.Text == "00Pack"));
             fixture.Shell.Renderer.SetTextInputValue(search.Entity, "");
             scene = fixture.Shell.Render(new(1000, 650));
             var list = FindByKey(fixture.Shell, scene, "ManagementContentList");

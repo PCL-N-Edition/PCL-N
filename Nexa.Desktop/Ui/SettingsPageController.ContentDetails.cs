@@ -54,7 +54,7 @@ internal sealed partial class SettingsPageController
             ContentImage(identity, item, 72, 72);
             var titles = Stack(identity, "ContentDetailTitles", XsrUiOrientation.Vertical, 4);
             _shell.Tree.GetComponent<XsrUiElement>(titles)!.Weight = 1;
-            if (_selected == "resourcepacks") Text(titles, ResourcePackTitle(item), 21, Ink, 34, 550);
+            if (_selected == "resourcepacks") ContentName(titles, ResourcePackTitle(item), 21, 34);
             else ContentName(titles, item.DisplayName.Length > 0 ? item.DisplayName : item.Name, 21, 34);
             Text(titles, Pages.First(page => page.Id == _selected).Label + (item.Enabled is { } active ? active ? " · 已启用" : " · 已停用" : ""), 13, Muted, 26);
             if (item.Description.Length > 0)

@@ -228,7 +228,7 @@ internal sealed partial class SettingsPageController
                     _shell.Tree.GetComponent<XsrUiElement>(text)!.Weight = 1;
                     if (_selected == "resourcepacks")
                     {
-                        Text(text, ResourcePackTitle(item), 15, Ink, 26, 550);
+                        ContentName(text, ResourcePackTitle(item), 15, 26);
                         ContentName(text, item.Description, 12, 40, maxLines: 2, foreground: Muted);
                     }
                     else
@@ -257,7 +257,7 @@ internal sealed partial class SettingsPageController
     private void ApplyContentFilter()
     {
         if (_management?.Contents.FirstOrDefault(item => item.PageId == _selected) is not { } source) return;
-        _contentSnapshot = source with { Entries = source.Entries.Where(item => (item.Name.Contains(_contentFilter, StringComparison.OrdinalIgnoreCase) || (StripContentFormatting(item.DisplayName).Contains(_contentFilter, StringComparison.OrdinalIgnoreCase) || StripContentFormatting(item.Description).Contains(_contentFilter, StringComparison.OrdinalIgnoreCase)) || item.Version.Contains(_contentFilter, StringComparison.OrdinalIgnoreCase))).ToArray() };
+        _contentSnapshot = source with { Entries = source.Entries.Where(item => ((item.Name.Contains(_contentFilter, StringComparison.OrdinalIgnoreCase) || StripContentFormatting(item.Name).Contains(_contentFilter, StringComparison.OrdinalIgnoreCase)) || (StripContentFormatting(item.DisplayName).Contains(_contentFilter, StringComparison.OrdinalIgnoreCase) || StripContentFormatting(item.Description).Contains(_contentFilter, StringComparison.OrdinalIgnoreCase)) || item.Version.Contains(_contentFilter, StringComparison.OrdinalIgnoreCase))).ToArray() };
         _contentWindowStart = -1;
     }
 
