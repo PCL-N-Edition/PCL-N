@@ -128,6 +128,8 @@ internal sealed class CrashChangesPresentation(DesktopFeedbackService feedback, 
     {
         InstanceRecoveryChangeKind.Added => "新增",
         InstanceRecoveryChangeKind.Removed => "删除",
+        InstanceRecoveryChangeKind.Enabled => "启用",
+        InstanceRecoveryChangeKind.Disabled => "停用",
         _ => "修改"
     };
 

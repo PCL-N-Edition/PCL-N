@@ -127,6 +127,8 @@ internal sealed partial class SettingsPageController : IDisposable
             _reading = null;
             if (reading.IsCompletedSuccessfully && reading.Result.IsSuccess)
             {
+                if (_instanceDirectory is not null && _selected == "recovery" && _revision >= 0 && _revision != reading.Result.Value!.Revision)
+                    CancelManagementRead();
                 _values = reading.Result.Value!; _revision = _values.Revision;
                 bool developer = _values.Values.First(item => item.Key == "developer.enabled").Value.Value == "true";
                 if (developer != _developer) { _developer = developer; BuildSections(); }
@@ -181,7 +183,11 @@ internal sealed partial class SettingsPageController : IDisposable
 
         _contentDetail = null; _contentFilter = "";
         _selected = page; _sections = _pages[page];
-        if (_instanceDirectory is not null && page == "recovery" && _management?.RecoveryStorage is null) CancelManagementRead();
+        if (_instanceDirectory is not null && page == "recovery")
+        {
+            CancelManagementRead();
+            if (_management is { } management) _management = management with { RecoveryStorage = null, RecoveryComparison = null };
+        }
         if (_instanceDirectory is not null && page == "trash") CancelManagementRead();
         BuildSections(navigating: true); UpdateNavigation(); UpdateEditors();
     }

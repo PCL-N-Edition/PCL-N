@@ -37,9 +37,10 @@ internal sealed partial class SettingsPageController
             RegisterContentAction(toggle, () => ToggleMod(item));
         }
         ManagementButton(header, "移至已移除内容", () => RemoveContent(item), 116);
-        var hero = Stack(_sections, "ManagementContentDetail", XsrUiOrientation.Vertical, 16);
+        var surface = Stack(_sections, "ManagementContentDetail", XsrUiOrientation.Vertical, 0);
+        Style(surface, White, Ink, 16);
+        var hero = Stack(surface, "ManagementContentDetailBody", XsrUiOrientation.Vertical, 16);
         _shell.Tree.GetComponent<XsrUiElement>(hero)!.Padding = new(24, 24, 24, 24);
-        Style(hero, White, Ink, 16);
         if (_selected == "screenshots")
         {
             ContentImage(hero, item, null, Math.Min(420, _shell.Renderer.Viewport.Height * .5));
@@ -53,11 +54,12 @@ internal sealed partial class SettingsPageController
             ContentImage(identity, item, 72, 72);
             var titles = Stack(identity, "ContentDetailTitles", XsrUiOrientation.Vertical, 4);
             _shell.Tree.GetComponent<XsrUiElement>(titles)!.Weight = 1;
-            ContentName(titles, item.DisplayName.Length > 0 ? item.DisplayName : item.Name, 21, 34);
+            if (_selected == "resourcepacks") Text(titles, ResourcePackTitle(item), 21, Ink, 34, 550);
+            else ContentName(titles, item.DisplayName.Length > 0 ? item.DisplayName : item.Name, 21, 34);
             Text(titles, Pages.First(page => page.Id == _selected).Label + (item.Enabled is { } active ? active ? " · 已启用" : " · 已停用" : ""), 13, Muted, 26);
             if (item.Description.Length > 0)
             {
-                foreach (var line in item.Description.Split('\n').Take(12)) ContentName(hero, line.TrimEnd('\r'), 14, 26);
+                ContentName(hero, item.Description, 14, null, maxLines: 0);
             }
         }
         ManagementFactIn(hero, "文件名", item.Name);
@@ -97,15 +99,22 @@ internal sealed partial class SettingsPageController
     {
         var card = Stack(parent, "ManagementScreenshot." + item.Name, XsrUiOrientation.Vertical, 8);
         var layout = _shell.Tree.GetComponent<XsrUiElement>(card)!;
-        layout.Weight = 1; layout.Height = 178; layout.Padding = new(10, 10, 10, 10);
+        layout.Weight = 1; layout.Height = 198;
         Style(card, White, Ink, 14);
         _shell.Tree.SetComponent(card, new XsrUiSemantic(XsrUiSemanticRole.Button, "查看截图 " + item.Name));
         _shell.Tree.SetComponent(card, new XsrUiInput { Clickable = true, Focusable = true });
         _shell.Tree.SetComponent(card, new XsrUiCommandBinding(ManagementAction));
         RegisterContentAction(card, () => OpenContentDetail(item));
-        ContentImage(card, item, null, 140);
-        Text(card, item.Name, 12, Ink, 26);
+        var body = Stack(card, "ManagementScreenshotBody", XsrUiOrientation.Vertical, 8);
+        _shell.Tree.GetComponent<XsrUiElement>(body)!.Padding = new(12, 12, 12, 12);
+        ContentImage(body, item, null, 140);
+        Text(body, item.Name, 12, Ink, 26);
     }
+
+    private static string ResourcePackTitle(InstanceContentEntry item) =>
+        !item.IsDirectory && item.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ? item.Name[..^4] : item.Name;
+
+    private static bool IsContentFormatCode(char code) => "0123456789abcdefklmnor".Contains(char.ToLowerInvariant(code));
 
     private static string StripContentFormatting(string value)
     {
@@ -113,16 +122,16 @@ internal sealed partial class SettingsPageController
         var text = new StringBuilder();
         for (int index = 0; index < value.Length; index++)
         {
-            if (value[index] == '§' && index + 1 < value.Length) { index++; continue; }
+            if (value[index] == '§' && index + 1 < value.Length && IsContentFormatCode(value[index + 1])) { index++; continue; }
             text.Append(value[index]);
         }
         return text.ToString();
     }
 
     // Legacy Minecraft formatting is presentation only; raw control codes never become labels.
-    private void ContentName(XsrUiEntityId parent, string value, double size, double height)
+    private void ContentName(XsrUiEntityId parent, string value, double size, double? height, int maxLines = 1, XsrUiColor? foreground = null)
     {
-        XsrUiColor color = Ink;
+        XsrUiColor color = foreground ?? Ink;
         bool bold = false, italic = false, underline = false, strike = false;
         var plain = new StringBuilder();
         List<XsrUiTextRun> runs = [];
@@ -135,7 +144,7 @@ internal sealed partial class SettingsPageController
         for (int index = 0; index < value.Length && index < 4096; index++)
         {
             char character = value[index];
-            if (character != '§' || index + 1 >= value.Length) { plain.Append(character); continue; }
+            if (character != '§' || index + 1 >= value.Length || !IsContentFormatCode(value[index + 1])) { plain.Append(character); continue; }
             Flush();
             char code = char.ToLowerInvariant(value[++index]);
             int digit = "0123456789abcdef".IndexOf(code);
@@ -150,10 +159,14 @@ internal sealed partial class SettingsPageController
             else if (code == 'o') italic = true;
             else if (code == 'n') underline = true;
             else if (code == 'm') strike = true;
-            else if (code == 'r') { color = Ink; bold = italic = underline = strike = false; }
+            else if (code == 'r') { color = foreground ?? Ink; bold = italic = underline = strike = false; }
         }
         Flush();
-        var entity = Text(parent, plain.ToString(), size, Ink, height, 550);
-        _shell.Tree.GetComponent<XsrUiText>(entity)!.Runs = runs.AsReadOnly();
+        var entity = Text(parent, plain.ToString(), size, foreground ?? Ink, height ?? 0, maxLines == 1 ? 550 : 400);
+        _shell.Tree.GetComponent<XsrUiElement>(entity)!.Height = height;
+        var text = _shell.Tree.GetComponent<XsrUiText>(entity)!;
+        text.Runs = runs.AsReadOnly();
+        text.MaxLines = maxLines;
+        _shell.Tree.GetComponent<XsrUiVisualStyle>(entity)!.WrapText = maxLines != 1;
     }
 }

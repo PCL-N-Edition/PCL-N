@@ -51,7 +51,7 @@ internal sealed partial class SettingsPageController
                 ManagementButton(_sections, "回滚全部更改", () => RestoreChanges(comparison, comparison.Changes), 140);
             foreach (var item in comparison.Changes.Skip(_recoveryChangesPage * pageSize).Take(pageSize))
             {
-                string kind = item.Kind switch { InstanceRecoveryChangeKind.Added => "新增", InstanceRecoveryChangeKind.Removed => "删除", _ => "修改" };
+                string kind = item.Kind switch { InstanceRecoveryChangeKind.Added => "新增", InstanceRecoveryChangeKind.Removed => "删除", InstanceRecoveryChangeKind.Enabled => "启用", InstanceRecoveryChangeKind.Disabled => "停用", _ => "修改" };
                 var row = Stack(_sections, "RecoveryChange", XsrUiOrientation.Vertical, 2);
                 Text(row, kind + " · " + item.Category, 12, Muted, 22);
                 var path = Text(row, new string(item.Path.Select(c => char.IsControl(c) ? ' ' : c).ToArray()), 14, Ink, 42);

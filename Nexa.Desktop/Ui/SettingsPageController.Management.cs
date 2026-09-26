@@ -117,7 +117,7 @@ internal sealed partial class SettingsPageController
 
     private void ToggleMod(InstanceContentEntry entry)
     {
-        if (_managementWrite is not null || _managementRead is not null || !_managementLoaded || _management is null || entry.Enabled is not { } enabled || entry.Size is not { } size
+        if (_managementWrite is not null || _management is null || entry.Enabled is not { } enabled || entry.Size is not { } size
             || !_commands.TryResolve(InstanceManagementContract.SetModEnabled, out var route)) return;
         _managementWriteInstance = _management.InstanceDirectory;
         _managementWrite = _commands.Dispatch(route, new InstanceModEnabledCommand(_managementWriteInstance, entry.Name, !enabled, size, entry.ModifiedUtcTicks)).Completion;
@@ -195,7 +195,7 @@ internal sealed partial class SettingsPageController
         if (!_contentList.IsAssigned || !_shell.Tree.IsAlive(_contentList) || _contentSnapshot is not { } snapshot) return;
         bool gallery = _selected == "screenshots";
         int columns = gallery ? Math.Max(1, (int)((_shell.Renderer.Viewport.Width - 130) / 250)) : 1;
-        double rowHeight = gallery ? 210 : 84;
+        double rowHeight = gallery ? 210 : _selected == "resourcepacks" ? 104 : 84;
         int rows = (snapshot.Entries.Count + columns - 1) / columns;
         int start = Math.Clamp((int)((_shell.Tree.GetComponent<XsrUiScroll>(_sections)!.OffsetY - 92) / rowHeight) - 3, 0, Math.Max(0, rows - 1));
         int count = Math.Min(rows - start, (int)Math.Ceiling(_shell.Renderer.Viewport.Height / rowHeight) + 8);
@@ -208,28 +208,41 @@ internal sealed partial class SettingsPageController
         Element(_contentList, "ManagementContentBefore", XsrUiSemanticRole.None, null, height: start * rowHeight);
         for (int rowIndex = start; rowIndex < start + count; rowIndex++)
         {
-            var row = Stack(_contentList, "ManagementContentRow", XsrUiOrientation.Horizontal, gallery ? 12 : 14);
+            var row = Stack(_contentList, "ManagementContentRow", XsrUiOrientation.Horizontal, gallery ? 12 : 0);
             var layout = _shell.Tree.GetComponent<XsrUiElement>(row)!;
-            layout.Height = rowHeight - (gallery ? 12 : 20);
-            layout.Padding = gallery ? new(0, 0, 0, 12) : new(12, 10, 12, 10);
+            layout.Height = rowHeight - (gallery ? 12 : 8);
+            layout.Margin = new(0, 0, 0, gallery ? 12 : 8);
             if (!gallery) Style(row, White, Ink, 12);
             foreach (var item in snapshot.Entries.Skip(rowIndex * columns).Take(columns))
             {
                 if (gallery) BuildScreenshotCard(row, item);
                 else
                 {
-                    ContentImage(row, item, 48, 48);
-                    var text = Stack(row, "ManagementContentIdentity", XsrUiOrientation.Vertical, 2);
+                    var body = Stack(row, "ManagementContentBody", XsrUiOrientation.Horizontal, 14);
+                    var bodyLayout = _shell.Tree.GetComponent<XsrUiElement>(body)!;
+                    bodyLayout.Weight = 1;
+                    bodyLayout.VerticalAlignment = XsrUiAlignment.Stretch;
+                    bodyLayout.Padding = new(16, 10, 16, 10);
+                    ContentImage(body, item, 48, 48);
+                    var text = Stack(body, "ManagementContentIdentity", XsrUiOrientation.Vertical, 2);
                     _shell.Tree.GetComponent<XsrUiElement>(text)!.Weight = 1;
-                    ContentName(text, item.DisplayName.Length == 0 ? item.Name : item.DisplayName, 15, 26);
-                    Text(text, item.Name + (item.Enabled == false ? " · 已停用" : ""), 12, Muted, 22);
+                    if (_selected == "resourcepacks")
+                    {
+                        Text(text, ResourcePackTitle(item), 15, Ink, 26, 550);
+                        ContentName(text, item.Description, 12, 40, maxLines: 2, foreground: Muted);
+                    }
+                    else
+                    {
+                        ContentName(text, item.DisplayName.Length == 0 ? item.Name : item.DisplayName, 15, 26);
+                        Text(text, item.Name + (item.Enabled == false ? " · 已停用" : ""), 12, Muted, 22);
+                    }
                     if (_selected == "mods")
                     {
-                        var version = Text(row, item.Version.Length > 0 ? item.Version : "版本未标注", 12, Muted, 24);
+                        var version = Text(body, item.Version.Length > 0 ? item.Version : "版本未标注", 12, Muted, 24);
                         _shell.Tree.GetComponent<XsrUiElement>(version)!.Width = 116;
                         _shell.Tree.GetComponent<XsrUiVisualStyle>(version)!.TextAlignment = XsrUiTextAlignment.End;
                     }
-                    var details = ActionButton(row, "ManagementContentDetails." + item.Name, "详情", ManagementAction, 64);
+                    var details = ActionButton(body, "ManagementContentDetails." + item.Name, "详情", ManagementAction, 64);
                     RegisterContentAction(details, () => OpenContentDetail(item));
                 }
             }
@@ -244,7 +257,7 @@ internal sealed partial class SettingsPageController
     private void ApplyContentFilter()
     {
         if (_management?.Contents.FirstOrDefault(item => item.PageId == _selected) is not { } source) return;
-        _contentSnapshot = source with { Entries = source.Entries.Where(item => (item.Name.Contains(_contentFilter, StringComparison.OrdinalIgnoreCase) || StripContentFormatting(item.DisplayName).Contains(_contentFilter, StringComparison.OrdinalIgnoreCase) || item.Version.Contains(_contentFilter, StringComparison.OrdinalIgnoreCase))).ToArray() };
+        _contentSnapshot = source with { Entries = source.Entries.Where(item => (item.Name.Contains(_contentFilter, StringComparison.OrdinalIgnoreCase) || (StripContentFormatting(item.DisplayName).Contains(_contentFilter, StringComparison.OrdinalIgnoreCase) || StripContentFormatting(item.Description).Contains(_contentFilter, StringComparison.OrdinalIgnoreCase)) || item.Version.Contains(_contentFilter, StringComparison.OrdinalIgnoreCase))).ToArray() };
         _contentWindowStart = -1;
     }
 
