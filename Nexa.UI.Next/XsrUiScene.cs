@@ -77,7 +77,8 @@ public readonly record struct XsrUiSceneNode(
     XsrUiScrollSnapshot? Scroll = null,
     XsrUiSegmentRevealSnapshot? SegmentReveal = null,
     XsrUiScrollMotionSnapshot? ScrollMotion = null,
-    bool SuppressEntryAnimation = false)
+    bool SuppressEntryAnimation = false,
+    IReadOnlyList<XsrUiTextRun>? TextRuns = null)
 {
     public bool HasRole => Role != XsrUiSemanticRole.None;
 }

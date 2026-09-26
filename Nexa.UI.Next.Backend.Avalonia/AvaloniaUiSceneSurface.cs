@@ -1384,7 +1384,18 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
             new Typeface(FontFamily.Default, FontStyle.Normal, weight),
             fontSize,
             foreground);
-        if (style.WrapText && Bounds.Width > x)
+        foreach (var run in _node.TextRuns ?? [])
+        {
+            if (run.Start < 0 || run.Length <= 0 || run.Start > text.Length - run.Length) continue;
+            formatted.SetForegroundBrush(Brush(run.Foreground), run.Start, run.Length);
+            formatted.SetFontWeight(run.Bold ? FontWeight.Bold : weight, run.Start, run.Length);
+            formatted.SetFontStyle(run.Italic ? FontStyle.Italic : FontStyle.Normal, run.Start, run.Length);
+            TextDecorationCollection decorations = [];
+            if (run.Underline) decorations.Add(TextDecorations.Underline[0]);
+            if (run.Strikethrough) decorations.Add(TextDecorations.Strikethrough[0]);
+            if (decorations.Count > 0) formatted.SetTextDecorations(decorations, run.Start, run.Length);
+        }
+        if ((style.WrapText || _node.TextTrimsOverflow) && Bounds.Width > x)
             formatted.MaxTextWidth = Bounds.Width - x;
         if (_node.TextMaxLines > 0)
             formatted.MaxLineCount = _node.TextMaxLines;
@@ -1397,6 +1408,17 @@ internal sealed partial class AvaloniaUiSceneNodeControl : Control
             _ => x,
         };
         double y = Math.Max(0, (Bounds.Height - formatted.Height) / 2);
+        // Minecraft names often explicitly request white or yellow. Retain their color while
+        // giving pale runs a small contrasting edge on a light settings surface.
+        if (_node.TextRuns?.Any(run => run.Foreground.Red > 200 && run.Foreground.Green > 200) == true)
+        {
+            formatted.SetForegroundBrush(new SolidColorBrush(Color.FromArgb(140, 0, 0, 0)));
+            context.DrawText(formatted, new Point(alignedX + .7, y + .7));
+            formatted.SetForegroundBrush(foreground);
+            foreach (var run in _node.TextRuns)
+                if (run.Start >= 0 && run.Length > 0 && run.Start <= text.Length - run.Length)
+                    formatted.SetForegroundBrush(Brush(run.Foreground), run.Start, run.Length);
+        }
         context.DrawText(formatted, new Point(alignedX, y));
     }
 

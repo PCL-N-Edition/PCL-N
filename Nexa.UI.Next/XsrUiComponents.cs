@@ -9,6 +9,7 @@ namespace Nexa.UI.Next;
 public sealed class XsrUiText(string content)
 {
     public string Content { get; set; } = content ?? string.Empty;
+    public IReadOnlyList<XsrUiTextRun> Runs { get; set; } = [];
 
     public XsrStateId BoundState { get; set; }
 
@@ -21,6 +22,10 @@ public sealed class XsrUiText(string content)
     /// <summary>Shows an end ellipsis when wrapping or the line limit omits content.</summary>
     public bool TrimOverflow { get; set; }
 }
+
+/// <summary>Immutable presentation ranges in the plain, accessible text.</summary>
+public sealed record XsrUiTextRun(int Start, int Length, XsrUiColor Foreground, bool Bold = false,
+    bool Italic = false, bool Underline = false, bool Strikethrough = false);
 
 /// <summary>
 /// Box model spacing around and inside one element.

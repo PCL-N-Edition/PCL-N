@@ -13,14 +13,17 @@ internal sealed partial class AvaloniaUiSceneNodeControl
 
     private void UpdateRaster(XsrUiRasterImage? raster)
     {
-        if (_rasterKey == raster?.Image.Key) return;
-        _rasterBitmap?.Dispose(); _rasterBitmap = null; _rasterKey = raster?.Image.Key;
+        string? key = raster is null ? null : raster.Image.Key + (raster.FitToBounds ? ":preview" : ":layers");
+        if (_rasterKey == key) return;
+        _rasterBitmap?.Dispose(); _rasterBitmap = null; _rasterKey = key;
         if (raster is null) return;
         try
         {
             using MemoryStream stream = new(raster.Image.Bytes.ToArray(), writable: false);
-            Bitmap bitmap = new(stream);
-            if (bitmap.PixelSize.Width != raster.Image.Width || bitmap.PixelSize.Height != raster.Image.Height) bitmap.Dispose();
+            int previewWidth = Math.Max(1, (int)(raster.Image.Width * Math.Min(1d, 1024d / Math.Max(raster.Image.Width, raster.Image.Height))));
+            Bitmap bitmap = raster.FitToBounds ? Bitmap.DecodeToWidth(stream, previewWidth, BitmapInterpolationMode.MediumQuality) : new(stream);
+            if (raster.FitToBounds ? bitmap.PixelSize.Width > 1024 || bitmap.PixelSize.Height > 1024
+                : bitmap.PixelSize.Width != raster.Image.Width || bitmap.PixelSize.Height != raster.Image.Height) bitmap.Dispose();
             else _rasterBitmap = bitmap;
         }
         catch (Exception failure) when (failure is ArgumentException or InvalidOperationException or IOException or NotSupportedException)
@@ -37,6 +40,15 @@ internal sealed partial class AvaloniaUiSceneNodeControl
     private bool DrawRaster(DrawingContext context, Rect bounds)
     {
         if (_rasterBitmap is not { } bitmap || _node.RasterImage is not { } raster) return false;
+        if (raster.FitToBounds)
+        {
+            double scale = Math.Min(bounds.Width / raster.Image.Width, bounds.Height / raster.Image.Height);
+            double width = raster.Image.Width * scale, height = raster.Image.Height * scale;
+            using (context.PushRenderOptions(new RenderOptions { BitmapInterpolationMode = BitmapInterpolationMode.MediumQuality }))
+                context.DrawImage(bitmap, new Rect(0, 0, bitmap.PixelSize.Width, bitmap.PixelSize.Height),
+                    new Rect(bounds.X + (bounds.Width - width) / 2, bounds.Y + (bounds.Height - height) / 2, width, height));
+            return true;
+        }
         double size = Math.Min(bounds.Width, bounds.Height);
         double x = bounds.X + (bounds.Width - size) / 2, y = bounds.Y + (bounds.Height - size) / 2;
         using (context.PushRenderOptions(new RenderOptions { BitmapInterpolationMode = BitmapInterpolationMode.None }))

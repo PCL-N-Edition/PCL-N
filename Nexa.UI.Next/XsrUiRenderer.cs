@@ -1389,7 +1389,7 @@ public sealed partial class XsrUiRenderer
             scrollSnapshot,
             _tree.GetComponent<XsrUiSegmentReveal>(entity) is { } reveal ? new(reveal.Expanded, reveal.Progress) : null,
             _tree.GetComponent<XsrUiScrollGesture>(entity) is { } motion ? new(motion.Revision, motion.Dragging, motion.Velocity) : null,
-            IsStableContent(entity)));
+            IsStableContent(entity), text?.Runs));
 
         if (_tree.GetComponent<XsrUiSegmentedTrack>(entity) is { } track
             && _tree.IsAlive(track.Thumb) && _paintRects.TryGetValue(track.Selected.Index, out XsrUiRect segment))

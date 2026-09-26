@@ -30,7 +30,7 @@ internal static partial class Program
         XsrUiTransition bodyTransition = new() { Key = "identity" }, titleTransition = new() { Key = "main", OffsetX = 32 };
         shell.Tree.SetComponent(group, bodyTransition);
         shell.Tree.SetComponent(shell.TitleBar, titleTransition);
-        shell.Tree.SetComponent(text, new XsrUiText("更衣橱 Agjp"));
+        shell.Tree.SetComponent(text, new XsrUiText("更衣橱 Agjp") { Runs = Array.AsReadOnly(new[] { new XsrUiTextRun(0, 3, new(50, 150, 80), Bold: true, Italic: true, Underline: true, Strikethrough: true), new XsrUiTextRun(999, 1, new(0, 0, 0)) }) });
         shell.Tree.SetComponent(text, new XsrUiVisualStyle { FontSize = 22 });
         shell.Tree.Attach(text, group); shell.Tree.Attach(group, page);
         shell.Renderer.ReducedMotion = true;
@@ -71,6 +71,11 @@ internal static partial class Program
         shell.Tree.SetComponent(image, media); shell.Tree.Attach(image, page); surface.CommitScene();
         AvaloniaUiSceneNodeControl control = surface.GetVisualDescendants().OfType<AvaloniaUiSceneNodeControl>().Single(item => item.Node.Entity == image);
         AssertTrue(control.HasDecodedRaster);
+        media.Raster = media.Raster! with { FitToBounds = true };
+        shell.Tree.MarkDirty(image, XsrUiDirtyKinds.Paint); surface.CommitScene();
+        AssertTrue(control.HasDecodedRaster);
+        AssertTrue(control.Node.RasterImage!.FitToBounds);
+
         media.Raster = null; shell.Tree.MarkDirty(image, XsrUiDirtyKinds.Paint); surface.CommitScene();
         AssertFalse(control.HasDecodedRaster);
         AssertEqual("pcl/avatar/steve", control.Node.ImageSource);
