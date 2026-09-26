@@ -179,6 +179,7 @@ internal sealed partial class SettingsPageController : IDisposable
     {
         _scrollPositions[_selected] = _shell.Tree.GetComponent<XsrUiScroll>(_sections)!.OffsetY;
 
+        _contentDetail = null; _contentFilter = "";
         _selected = page; _sections = _pages[page];
         if (_instanceDirectory is not null && page == "recovery" && _management?.RecoveryStorage is null) CancelManagementRead();
         if (_instanceDirectory is not null && page == "trash") CancelManagementRead();
@@ -232,8 +233,13 @@ internal sealed partial class SettingsPageController : IDisposable
         if (!navigating) _scrollPositions[_selected] = _shell.Tree.GetComponent<XsrUiScroll>(_sections)!.OffsetY;
         foreach (var child in _shell.Tree.Children(_sections).ToArray()) _shell.Tree.Destroy(child);
         _editors.Clear(); _inheritButtons.Clear(); _selectors.Clear(); _argumentEditors.Clear(); _argumentActions.Clear(); _choices.Clear();
-        _managementActions.Clear(); _contentList = default; _contentWindowStart = -1;
-        if (_instanceDirectory is not null && _selected != "game") { BuildManagementSection(); return; }
+        _managementActions.Clear(); _contentSearch = default; _contentList = default; _contentWindowStart = -1;
+        if (_instanceDirectory is not null && _selected != "game")
+        {
+            BuildManagementSection();
+            if (focus == "ManagementContentSearch" && _contentSearch.IsAssigned) _shell.Renderer.Focus(_contentSearch, showIndicator: false);
+            return;
+        }
         if (_selected == "platform") { BuildPlatformCapabilities(); return; }
         if (_selected == "advanced") BuildUpdateCard();
         if (_selected == "privacy")

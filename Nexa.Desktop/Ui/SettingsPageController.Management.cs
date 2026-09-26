@@ -23,6 +23,9 @@ internal sealed partial class SettingsPageController
     private int _trashPage;
     private XsrUiEntityId _contentSearch;
     private string _contentFilter = "";
+    private InstanceContentEntry? _contentDetail;
+    private double _contentReturnOffset;
+    private int _contentColumns;
     internal Action<string>? OpenManagementDirectory { get; set; }
     internal Action? ManagementChanged { get; set; }
     private IReadOnlyList<SettingsCatalogPage> ManagementPages => _management is { } snapshot
@@ -38,6 +41,7 @@ internal sealed partial class SettingsPageController
     private void ResetManagement()
     {
         if (_instanceDirectory is null) return;
+        _contentDetail = null; _contentFilter = "";
         CancelManagementRead(); _management = null; _managementError = null;
         _selected = "overview"; _scrollPositions.Clear(); _recoverySnapshotPage = 0; _recoveryChangesPage = 0;
         if (_catalog is not null) RebuildManagementNavigation();
@@ -62,7 +66,7 @@ internal sealed partial class SettingsPageController
             {
                 if (!writing.IsCompletedSuccessfully || !writing.Result.IsSuccess)
                     _feedback.Error(writing.IsCompletedSuccessfully ? writing.Result.Error?.Message ?? "版本更改未完成。" : "版本更改未完成。");
-                else ManagementChanged?.Invoke();
+                else { _contentDetail = null; ManagementChanged?.Invoke(); }
                 CancelManagementRead();
             }
         }
@@ -84,7 +88,7 @@ internal sealed partial class SettingsPageController
             RebuildManagementNavigation();
         }
         else _managementError = "无法读取版本内容，请检查目录后重试。";
-        BuildSections(navigating: _selected != "game"); UpdateEditors();
+        BuildSections(); UpdateEditors();
     }
 
     private void RebuildManagementNavigation()
@@ -122,35 +126,39 @@ internal sealed partial class SettingsPageController
 
     private void BuildManagementSection()
     {
+        _shell.Tree.GetComponent<XsrUiStackPanel>(_sections)!.Spacing = 12;
+        if (_contentDetail is { } detail) { BuildContentDetail(detail); return; }
+        _shell.Tree.GetComponent<XsrUiScroll>(_sections)!.OffsetY = _scrollPositions.GetValueOrDefault(_selected);
         var toolbar = Stack(_sections, "ManagementToolbar", XsrUiOrientation.Horizontal, 10);
-        var title = Text(toolbar, Pages.First(page => page.Id == _selected).Label, 20, Ink, 34, 600);
-        _shell.Tree.GetComponent<XsrUiElement>(title)!.Weight = 1;
-        ManagementButton(toolbar, "刷新", () => { CancelManagementRead(); _managementError = null; }, 60);
         if (_management is not { } snapshot)
         {
             Text(_sections, _managementError ?? "正在读取版本内容…", 13, Muted, 28);
+            ManagementButton(toolbar, "刷新", () => { CancelManagementRead(); _managementError = null; }, 60);
             return;
         }
-        if (_managementError is not null) Text(_sections, _managementError, 13, Muted, 28);
         var page = snapshot.Pages.First(item => item.Id == _selected);
+        if (page.Directory is null) ManagementButton(toolbar, "刷新", () => { CancelManagementRead(); _managementError = null; }, 60);
         if (page.Directory is { } directory)
         {
-            if (OpenManagementDirectory is not null) ManagementButton(toolbar, "打开文件夹", () => OpenContentDirectory(directory), 100);
-            Text(_sections, directory, 12, Muted, 24);
+            _contentSearch = Element(toolbar, "ManagementContentSearch", XsrUiSemanticRole.TextInput, "搜索内容", height: 36);
+            _shell.Tree.GetComponent<XsrUiElement>(_contentSearch)!.Weight = 1;
+            _shell.Tree.GetComponent<XsrUiElement>(_contentSearch)!.Padding = new(12, 0, 12, 0);
+            _shell.Tree.SetComponent(_contentSearch, new XsrUiTextInput { Placeholder = "搜索名称、文件名或版本" });
+            _shell.Tree.SetComponent(_contentSearch, new XsrUiInput { Focusable = true, Clickable = true });
+            Style(_contentSearch, new(241, 244, 248), Ink, 10, 13);
+            _shell.Renderer.SetTextInputValue(_contentSearch, _contentFilter);
+            ManagementButton(toolbar, "刷新", () => { CancelManagementRead(); _managementError = null; }, 60);
+            ManagementButton(toolbar, "打开文件夹", () => OpenContentDirectory(directory), 100);
             _contentSnapshot = snapshot.Contents.FirstOrDefault(item => item.PageId == _selected);
+            var location = Stack(_sections, "ManagementLocation", XsrUiOrientation.Horizontal, 12);
+            var path = Text(location, directory, 12, Muted, 24);
+            _shell.Tree.GetComponent<XsrUiElement>(path)!.Weight = 1;
+            Text(location, $"{_contentSnapshot?.Entries.Count ?? 0} 项" + (_contentSnapshot?.Complete == false ? " · 未全部列出" : ""), 12, Muted, 24);
+            if (_managementError is not null) Text(_sections, _managementError, 13, Muted, 28);
             if (_contentSnapshot?.Error is { } error) Text(_sections, error, 13, Muted, 28);
-            else if (_contentSnapshot is not { Entries.Count: > 0 }) Text(_sections, "此目录中还没有内容。", 13, Muted, 28);
-            else
-            {
-                Text(_sections, _contentSnapshot.Complete ? $"{_contentSnapshot.Entries.Count} 项" : $"显示前 {_contentSnapshot.Entries.Count} 项，请在文件夹中查看其余内容。", 12, Muted, 22);
-                _contentSearch = Element(_sections, "ManagementContentSearch", XsrUiSemanticRole.TextInput, "搜索内容", height: 34);
-                _shell.Tree.SetComponent(_contentSearch, new XsrUiTextInput { Placeholder = "搜索名称" });
-                _shell.Tree.SetComponent(_contentSearch, new XsrUiInput { Focusable = true, Clickable = true });
-                _shell.Renderer.SetTextInputValue(_contentSearch, _contentFilter);
-                _contentList = Stack(_sections, "ManagementContentList", XsrUiOrientation.Vertical, 0);
-                ApplyContentFilter();
-                UpdateContentWindow();
-            }
+            _contentList = Stack(_sections, "ManagementContentList", XsrUiOrientation.Vertical, 0);
+            ApplyContentFilter();
+            UpdateContentWindow();
         }
         else if (_selected == "overview")
         {
@@ -185,42 +193,58 @@ internal sealed partial class SettingsPageController
     private void UpdateContentWindow()
     {
         if (!_contentList.IsAssigned || !_shell.Tree.IsAlive(_contentList) || _contentSnapshot is not { } snapshot) return;
-        const double rowHeight = 44;
-        int start = Math.Clamp((int)((_shell.Tree.GetComponent<XsrUiScroll>(_sections)!.OffsetY - 140) / rowHeight) - 4, 0, Math.Max(0, snapshot.Entries.Count - 1));
-        int count = Math.Min(snapshot.Entries.Count - start, (int)Math.Ceiling(_shell.Renderer.Viewport.Height / rowHeight) + 10);
-        if (_contentWindowStart == start && _contentWindowCount == count) return;
-        _contentWindowStart = start; _contentWindowCount = count;
+        bool gallery = _selected == "screenshots";
+        int columns = gallery ? Math.Max(1, (int)((_shell.Renderer.Viewport.Width - 130) / 250)) : 1;
+        double rowHeight = gallery ? 210 : 84;
+        int rows = (snapshot.Entries.Count + columns - 1) / columns;
+        int start = Math.Clamp((int)((_shell.Tree.GetComponent<XsrUiScroll>(_sections)!.OffsetY - 92) / rowHeight) - 3, 0, Math.Max(0, rows - 1));
+        int count = Math.Min(rows - start, (int)Math.Ceiling(_shell.Renderer.Viewport.Height / rowHeight) + 8);
+        if (_contentWindowStart == start && _contentWindowCount == count && _contentColumns == columns) return;
+        _contentWindowStart = start; _contentWindowCount = count; _contentColumns = columns;
         foreach (var action in _contentActions) _managementActions.Remove(action);
         _contentActions.Clear();
         foreach (var child in _shell.Tree.Children(_contentList).ToArray()) _shell.Tree.Destroy(child);
+        if (rows == 0) Text(_contentList, _contentFilter.Length == 0 ? "此目录中还没有内容。" : "没有匹配的内容。", 13, Muted, 48);
         Element(_contentList, "ManagementContentBefore", XsrUiSemanticRole.None, null, height: start * rowHeight);
-        foreach (var item in snapshot.Entries.Skip(start).Take(count))
+        for (int rowIndex = start; rowIndex < start + count; rowIndex++)
         {
-            var row = Stack(_contentList, "ManagementContentRow", XsrUiOrientation.Horizontal, 16);
-            _shell.Tree.GetComponent<XsrUiElement>(row)!.Height = rowHeight;
-            var name = Text(row, item.Name, 14, Ink, 30);
-            _shell.Tree.GetComponent<XsrUiElement>(name)!.Weight = 1;
-            var size = Text(row, item.IsDirectory ? "文件夹" : item.Size is { } bytes ? $"{bytes / 1024d:N1} KB" : "", 12, Muted, 30);
-            _shell.Tree.GetComponent<XsrUiElement>(size)!.Width = 100;
-            _shell.Tree.GetComponent<XsrUiVisualStyle>(size)!.TextAlignment = XsrUiTextAlignment.End;
-            if (item.Enabled is { } enabled)
+            var row = Stack(_contentList, "ManagementContentRow", XsrUiOrientation.Horizontal, gallery ? 12 : 14);
+            var layout = _shell.Tree.GetComponent<XsrUiElement>(row)!;
+            layout.Height = rowHeight - (gallery ? 12 : 20);
+            layout.Padding = gallery ? new(0, 0, 0, 12) : new(12, 10, 12, 10);
+            if (!gallery) Style(row, White, Ink, 12);
+            foreach (var item in snapshot.Entries.Skip(rowIndex * columns).Take(columns))
             {
-                var button = ActionButton(row, "ManagementModToggle." + item.Name, enabled ? "停用" : "启用", ManagementAction, 64);
-                _managementActions[button] = () => ToggleMod(item);
-                _contentActions.Add(button);
+                if (gallery) BuildScreenshotCard(row, item);
+                else
+                {
+                    ContentImage(row, item, 48, 48);
+                    var text = Stack(row, "ManagementContentIdentity", XsrUiOrientation.Vertical, 2);
+                    _shell.Tree.GetComponent<XsrUiElement>(text)!.Weight = 1;
+                    ContentName(text, item.DisplayName.Length == 0 ? item.Name : item.DisplayName, 15, 26);
+                    Text(text, item.Name + (item.Enabled == false ? " · 已停用" : ""), 12, Muted, 22);
+                    if (_selected == "mods")
+                    {
+                        var version = Text(row, item.Version.Length > 0 ? item.Version : "版本未标注", 12, Muted, 24);
+                        _shell.Tree.GetComponent<XsrUiElement>(version)!.Width = 116;
+                        _shell.Tree.GetComponent<XsrUiVisualStyle>(version)!.TextAlignment = XsrUiTextAlignment.End;
+                    }
+                    var details = ActionButton(row, "ManagementContentDetails." + item.Name, "详情", ManagementAction, 64);
+                    RegisterContentAction(details, () => OpenContentDetail(item));
+                }
             }
-            var remove = ActionButton(row, "ManagementContentRemove." + item.Name, "移除", ManagementAction, 64);
-            _managementActions[remove] = () => RemoveContent(item);
-            _contentActions.Add(remove);
+            if (gallery)
+                for (int missing = columns - Math.Min(columns, snapshot.Entries.Count - rowIndex * columns); missing > 0; missing--)
+                    _shell.Tree.GetComponent<XsrUiElement>(Element(row, "GallerySpace", XsrUiSemanticRole.None, null))!.Weight = 1;
         }
-        Element(_contentList, "ManagementContentAfter", XsrUiSemanticRole.None, null, height: (snapshot.Entries.Count - start - count) * rowHeight);
+        Element(_contentList, "ManagementContentAfter", XsrUiSemanticRole.None, null, height: (rows - start - count) * rowHeight);
         _shell.Tree.MarkDirty(_contentList, XsrUiDirtyKinds.Layout | XsrUiDirtyKinds.Paint);
     }
 
     private void ApplyContentFilter()
     {
         if (_management?.Contents.FirstOrDefault(item => item.PageId == _selected) is not { } source) return;
-        _contentSnapshot = source with { Entries = source.Entries.Where(item => item.Name.Contains(_contentFilter, StringComparison.OrdinalIgnoreCase)).ToArray() };
+        _contentSnapshot = source with { Entries = source.Entries.Where(item => (item.Name.Contains(_contentFilter, StringComparison.OrdinalIgnoreCase) || StripContentFormatting(item.DisplayName).Contains(_contentFilter, StringComparison.OrdinalIgnoreCase) || item.Version.Contains(_contentFilter, StringComparison.OrdinalIgnoreCase))).ToArray() };
         _contentWindowStart = -1;
     }
 

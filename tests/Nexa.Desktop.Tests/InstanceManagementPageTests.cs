@@ -14,9 +14,21 @@ internal static partial class Program
         string mods = Path.Combine(instance, "mods");
         Directory.CreateDirectory(mods);
         File.WriteAllText(Path.Combine(mods, "example.jar"), "fixture");
+        using (var archive = System.IO.Compression.ZipFile.Open(Path.Combine(mods, "iris.jar"), System.IO.Compression.ZipArchiveMode.Create))
+        using (var writer = new StreamWriter(archive.CreateEntry("fabric.mod.json").Open()))
+            writer.Write("""{"id":"iris","name":"Iris","version":"1.8.0"}""");
+        Directory.CreateDirectory(Path.Combine(instance, "shaderpacks"));
+        File.WriteAllText(Path.Combine(instance, "shaderpacks", "Shader.zip"), "fixture");
         string resourcepacks = Path.Combine(instance, "resourcepacks");
         Directory.CreateDirectory(resourcepacks);
         for (int i = 0; i < 220; i++) File.WriteAllText(Path.Combine(resourcepacks, $"pack-{i:D3}.zip"), "fixture");
+        Directory.CreateDirectory(Path.Combine(instance, "screenshots"));
+        File.WriteAllBytes(Path.Combine(instance, "screenshots", "screen.png"), Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6xN8AAAAASUVORK5CYII="));
+        Directory.CreateDirectory(Path.Combine(instance, "saves", "My World"));
+        File.Delete(Path.Combine(resourcepacks, "pack-000.zip"));
+        using (var archive = System.IO.Compression.ZipFile.Open(Path.Combine(resourcepacks, "pack-000.zip"), System.IO.Compression.ZipArchiveMode.Create))
+        using (var writer = new StreamWriter(archive.CreateEntry("pack.mcmeta").Open()))
+            writer.Write("""{"pack":{"description":"§aGreen §l§o§nPack","pack_format":34}}""");
         string vanilla = Path.Combine(root, "versions", "vanilla");
         Directory.CreateDirectory(vanilla);
         File.WriteAllText(Path.Combine(vanilla, "vanilla.json"), """{"id":"vanilla","_minecraftVersion":"1.20.1"}""");
@@ -53,14 +65,18 @@ internal static partial class Program
             scene = fixture.Shell.Render(new(1000, 650));
 
             AssertFalse(scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) is "SettingsNav.java" or "SettingsNav.components"));
-            AssertFalse(scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "SettingsNav.shaderpacks"));
+            AssertTrue(scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "SettingsNav.shaderpacks"));
             Emit(fixture.Intents, "ui.settings.section", FindByKey(fixture.Shell, scene, "SettingsNav.mods").Entity);
             scene = fixture.Shell.Render(new(1000, 650));
+            AssertFalse(scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "ManagementModToggle.example.jar"));
+            Emit(fixture.Intents, "ui.settings.management.action", FindByKey(fixture.Shell, scene, "ManagementContentDetails.example.jar").Entity);
+            scene = fixture.Shell.Render(new(1000, 650));
+            AssertTrue(scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "ManagementContentDetail"));
             Emit(fixture.Intents, "ui.settings.management.action", FindByKey(fixture.Shell, scene, "ManagementModToggle.example.jar").Entity);
             bool toggled = SpinWait.SpinUntil(() =>
             {
                 scene = fixture.Shell.Render(new(1000, 650));
-                return scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "ManagementModToggle.example.jar.disabled");
+                return scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "ManagementContentDetails.example.jar.disabled");
             }, TimeSpan.FromSeconds(10));
             if (!toggled) throw new InvalidOperationException($"Toggle did not refresh: file={File.Exists(Path.Combine(mods, "example.jar.disabled"))}; page={settings.SelectedSection}; errors={string.Join(";", fixture.Feedback.Snapshot().Notifications.Select(item => item.Message))}");
             AssertTrue(File.Exists(Path.Combine(mods, "example.jar.disabled")));
@@ -70,9 +86,28 @@ internal static partial class Program
             scene = fixture.Shell.Render(new(1000, 650));
             AssertEqual("resourcepacks", settings.SelectedSection);
             AssertTrue(scene.Nodes.Any(node => node.Text == "pack-000.zip"));
+            var formattedName = scene.Nodes.Single(node => node.Text == "Green Pack");
+            AssertEqual(2, formattedName.TextRuns!.Count);
+            AssertTrue(formattedName.TextRuns[1].Bold && formattedName.TextRuns[1].Italic && formattedName.TextRuns[1].Underline);
+            AssertFalse(scene.Nodes.Any(node => node.Text?.Contains('§') == true));
             Emit(fixture.Intents, "ui.settings.management.action", FindByKey(fixture.Shell, scene, "Management.打开文件夹").Entity);
             scene = fixture.Shell.Render(new(1000, 650));
             AssertEqual(resourcepacks, openedDirectory!);
+            var search = FindByKey(fixture.Shell, scene, "ManagementContentSearch");
+            AssertTrue(search.Rect.Width > 250);
+            AssertTrue(fixture.Shell.Renderer.PointerPressed(new(search.Rect.X + 20, search.Rect.Y + 18)));
+            AssertEqual(search.Entity, fixture.Shell.Renderer.Focused);
+            fixture.Shell.Renderer.SetTextInputValue(search.Entity, "Green Pack");
+            scene = fixture.Shell.Render(new(1000, 650));
+            AssertTrue(scene.Nodes.Any(node => node.Text == "Green Pack"));
+            AssertFalse(scene.Nodes.Any(node => node.Text == "pack-001.zip"));
+            fixture.Shell.Renderer.SetTextInputValue(search.Entity, "pack-219");
+            scene = fixture.Shell.Render(new(1000, 650));
+            AssertEqual(search.Entity, fixture.Shell.Renderer.Focused);
+            AssertTrue(scene.Nodes.Any(node => node.Text == "pack-219.zip"));
+            AssertFalse(scene.Nodes.Any(node => node.Text == "pack-000.zip"));
+            fixture.Shell.Renderer.SetTextInputValue(search.Entity, "");
+            scene = fixture.Shell.Render(new(1000, 650));
             var list = FindByKey(fixture.Shell, scene, "ManagementContentList");
             AssertTrue(fixture.Shell.Tree.Children(list.Entity).Count < 40);
             var body = fixture.Shell.Tree.Parent(list.Entity);
@@ -81,6 +116,29 @@ internal static partial class Program
             scene = fixture.Shell.Render(new(1000, 650));
             AssertTrue(fixture.Shell.Tree.Children(list.Entity).Count < 40);
             AssertTrue(scene.Nodes.Any(node => node.Text == "pack-219.zip"));
+            Emit(fixture.Intents, "ui.settings.section", FindByKey(fixture.Shell, scene, "SettingsNav.screenshots").Entity);
+            scene = fixture.Shell.Render(new(1000, 650));
+            var card = FindByKey(fixture.Shell, scene, "ManagementScreenshot.screen.png");
+            AssertTrue(card.Rect.Width > 180);
+            AssertTrue(scene.Nodes.Any(node => node.RasterImage?.FitToBounds == true));
+            Emit(fixture.Intents, "ui.settings.management.action", card.Entity);
+            scene = fixture.Shell.Render(new(1000, 650));
+            AssertTrue(scene.Nodes.Any(node => node.Text == "图像尺寸"));
+            Emit(fixture.Intents, "ui.settings.management.action", FindByKey(fixture.Shell, scene, "Management.返回列表").Entity);
+            scene = fixture.Shell.Render(new(1000, 650));
+            AssertTrue(scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "ManagementScreenshot.screen.png"));
+            Emit(fixture.Intents, "ui.settings.section", FindByKey(fixture.Shell, scene, "SettingsNav.saves").Entity);
+            scene = fixture.Shell.Render(new(1000, 650));
+            AssertFalse(scene.Nodes.Any(node => node.Text == "移除"));
+            Emit(fixture.Intents, "ui.settings.management.action", FindByKey(fixture.Shell, scene, "ManagementContentDetails.My World").Entity);
+            scene = fixture.Shell.Render(new(1000, 650));
+            AssertTrue(scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "ManagementContentDetail"));
+            Emit(fixture.Intents, "ui.settings.section", FindByKey(fixture.Shell, scene, "SettingsNav.shaderpacks").Entity);
+            scene = fixture.Shell.Render(new(1000, 650));
+            AssertTrue(scene.Nodes.Any(node => node.ImageSource == "nexa/content-shader"));
+            Emit(fixture.Intents, "ui.settings.management.action", FindByKey(fixture.Shell, scene, "ManagementContentDetails.Shader.zip").Entity);
+            scene = fixture.Shell.Render(new(1000, 650));
+            AssertTrue(scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "ManagementContentDetail"));
             instance = vanilla;
             AssertTrue(SpinWait.SpinUntil(() =>
             {
