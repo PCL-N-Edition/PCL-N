@@ -138,9 +138,7 @@ internal sealed partial class SettingsPageController
             foreach (var group in orderedGroups)
             {
                 Text(_sections, group, 12, Muted, 24, 600);
-                var card = Stack(_sections, "PlatformCard." + group, XsrUiOrientation.Vertical, 0);
-                Style(card, White, Ink, 12);
-                _shell.Tree.GetComponent<XsrUiElement>(card)!.Padding = new(16, 6, 16, 6);
+                var card = SettingsCard("PlatformCard." + group, new(16, 6, 16, 6));
                 foreach (var value in visible.Where(value => value.Definition.Group == group))
                     BuildCapabilityRow(card, value);
             }
@@ -270,9 +268,7 @@ internal sealed partial class SettingsPageController
         if (report.OverallSeverity == PreflightSeverity.None) return;
 
         Text(_sections, "诊断与修复", 12, Muted, 24, 600);
-        var card = Stack(_sections, "PlatformPreflightCard", XsrUiOrientation.Vertical, 0);
-        Style(card, White, Ink, 12);
-        _shell.Tree.GetComponent<XsrUiElement>(card)!.Padding = new(16, 6, 16, 6);
+        var card = SettingsCard("PlatformPreflightCard", new(16, 6, 16, 6));
         Text(card, "整体状态：" + SeverityLabel(report.OverallSeverity), 13, Ink, 26, 600);
         foreach (var issue in report.CollapsedIssues)
         {

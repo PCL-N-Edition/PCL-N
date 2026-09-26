@@ -202,10 +202,29 @@ internal static partial class Program
         }
         AssertTrue(SpinWait.SpinUntil(Ready, TimeSpan.FromSeconds(5)));
         var id = fixture.Store.Resolve(Nexa.Services.Capabilities.MachineCapabilityStateContract.RevisionKey);
+        foreach (var body in scene.Nodes.Where(node => fixture.Shell.Tree.Name(node.Entity).StartsWith("PlatformCard.", StringComparison.Ordinal)
+            && fixture.Shell.Tree.Name(node.Entity).EndsWith(".Body", StringComparison.Ordinal)))
+        {
+            var card = scene.Nodes.Single(node => node.Entity == fixture.Shell.Tree.Parent(body.Entity));
+            AssertTrue(Math.Abs(body.Rect.X - card.Rect.X - 16) < .01);
+            AssertTrue(Math.Abs(card.Rect.Width - body.Rect.Width - 32) < .01);
+        }
         long before = fixture.Store.Read<long>(id).Value;
         Emit(fixture.Intents, "ui.settings.platform.refresh", FindByKey(fixture.Shell, scene, "PlatformRefresh").Entity);
         AssertTrue(SpinWait.SpinUntil(() => { Ready(); return fixture.Store.Read<long>(id).Value > before; }, TimeSpan.FromSeconds(5)));
         AssertTrue(SpinWait.SpinUntil(Ready, TimeSpan.FromSeconds(5)));
+        settings.ConfigureUpdates(fixture.Foundation.Queries, new("2.0.0.alpha.5", "win-x64", "alpha"), _ => { });
+        Emit(fixture.Intents, "ui.settings.section", FindByKey(fixture.Shell, scene, "SettingsNav.advanced").Entity);
+        foreach (var width in new[] { 760d, 1000d })
+        {
+            scene = fixture.Shell.Render(new(width, 650));
+            var card = FindByKey(fixture.Shell, scene, "SettingsUpdateCard");
+            var body = FindByKey(fixture.Shell, scene, "SettingsUpdateCard.Body");
+            AssertTrue(Math.Abs(body.Rect.X - card.Rect.X - 20) < .01);
+            AssertTrue(Math.Abs(card.Rect.Width - body.Rect.Width - 40) < .01);
+            AssertTrue(Math.Abs(body.Rect.Y - card.Rect.Y - 18) < .01);
+            AssertTrue(Math.Abs(card.Rect.Height - body.Rect.Height - 36) < .01);
+        }
     }
 
     private static void SettingsInlineSelectorCommitsBothDirections()

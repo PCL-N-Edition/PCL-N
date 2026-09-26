@@ -54,9 +54,7 @@ internal sealed partial class SettingsPageController
     private void BuildUpdateCard()
     {
         if (_updateQuery is null) return;
-        var card = Stack(_sections, "SettingsUpdateCard", XsrUiOrientation.Vertical, 10);
-        Style(card, White, Ink, 18);
-        _shell.Tree.GetComponent<XsrUiElement>(card)!.Padding = new(20, 18, 20, 18);
+        var card = SettingsCard("SettingsUpdateCard", new(20, 18, 20, 18), spacing: 10, radius: 18);
         Text(card, "NexaCL " + _updateQuery.CurrentVersion, 19, Ink, 28, 600);
         Text(card, _updateStatus, 13, Muted, 22);
         var actions = Stack(card, "SettingsUpdateActions", XsrUiOrientation.Horizontal, 10);

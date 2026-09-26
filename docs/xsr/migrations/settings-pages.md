@@ -19,3 +19,7 @@ Edits dispatch through Foundation settings commands. Text drafts are not overwri
 ## Verification
 
 Desktop regressions cover all eight categories, narrow-window geometry, command-to-persistence behavior, draft focus, developer-section continuity, unavailable rows, and anchored choice menu geometry/selection. Visual review uses the actual Avalonia scene surface rendered to a bitmap in an external headless probe, not a separate HTML mock-up. Standard architecture, formatting, native and trim checks still apply.
+
+Settings cards use an unpadded painted surface and a padded inner body. Platform facts,
+preflight issues and update actions therefore share the full page width while content has
+symmetric 16px/20px insets. Padding must not shrink the renderer's painted card rectangle.

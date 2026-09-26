@@ -290,6 +290,15 @@ internal sealed partial class SettingsPageController : IDisposable
             _shell.Tree.Walk(_sections, entity => { if (_shell.Tree.Name(entity) == focus) _shell.Renderer.Focus(entity); return true; });
     }
 
+    private XsrUiEntityId SettingsCard(string name, XsrUiThickness padding, double spacing = 0, double radius = 12)
+    {
+        var surface = Stack(_sections, name, XsrUiOrientation.Vertical, 0);
+        Style(surface, White, Ink, radius);
+        var body = Stack(surface, name + ".Body", XsrUiOrientation.Vertical, spacing);
+        _shell.Tree.GetComponent<XsrUiElement>(body)!.Padding = padding;
+        return body;
+    }
+
     private void BuildRow(XsrUiEntityId parent, SettingsCatalogEntry entry)
     {
         var row = Stack(parent, "SettingsRow." + entry.Id, XsrUiOrientation.Horizontal, 16);
