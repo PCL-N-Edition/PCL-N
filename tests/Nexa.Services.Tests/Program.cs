@@ -4,6 +4,8 @@ internal static partial class Program
 {
     private static readonly (string Name, Func<ValueTask> Body)[] TestCases =
     [
+        ("resource catalog filters and validates provider results", ResourceCatalogFiltersAndValidatesProviderResults),
+        ("resource catalog bounds actual response and honors cancellation", ResourceCatalogBoundsActualResponseAndHonorsCancellation),
         ("nested Quilt and JarJar inventory preserves content identity", NestedQuiltAndJarJarInventoryPreservesContentIdentity),
         ("installed loader compatibility requires explicit evidence", InstalledLoaderCompatibilityRequiresExplicitEvidence),
         ("recovery restore command honors selection and rejects stale preview", RecoveryRestoreCommandHonorsSelectionAndRejectsStalePreview),
