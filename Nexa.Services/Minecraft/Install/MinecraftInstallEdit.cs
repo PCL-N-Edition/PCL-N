@@ -172,7 +172,7 @@ public sealed partial class MinecraftInstallService
         }
         string stage = resumeStage ?? ForgeInstallService.Contained(original.RootDirectory, ".nexa-modify/" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(stage);
-        bool safeToRemove = false;
+        bool safeToRemove = false, completed = false;
         FileStream? executionLease = null;
         try
         {
@@ -228,9 +228,13 @@ public sealed partial class MinecraftInstallService
                 safeToRemove = true;
                 throw;
             }
-            safeToRemove = true;
+            // Keep committed evidence if persisting the terminal receipt fails.
+            safeToRemove = false;
             if (resumeStage is null && (command.NewInstanceName is null || command.NewInstanceName == instance))
             {
+                var saved = await InstallTaskJournal.ReadAsync(original.RootDirectory, stage, CancellationToken.None).ConfigureAwait(false);
+                await InstallTaskJournal.WriteStatusAsync(stage, saved, InstallTaskStatus.Completed, CancellationToken.None).ConfigureAwait(false);
+                completed = true;
                 task.Complete($"已修改 {instance}");
                 Installed?.Invoke(original.RootDirectory);
             }
@@ -239,8 +243,9 @@ public sealed partial class MinecraftInstallService
         finally
         {
             executionLease?.Dispose();
+            if (completed) InstallTaskCleanup.TryPrune(stage, ".task/plan.json", ".task/status.json", ".task/execution.lock");
             // An interrupted/failed publication owns the only durable originals. Keep it until resolved.
-            if (!renaming && resumeStage is null && (safeToRemove || !_pauseForExit && !File.Exists(Path.Combine(stage, ".publication", "progress.json"))))
+            if (!completed && !renaming && resumeStage is null && (safeToRemove || !_pauseForExit && !File.Exists(Path.Combine(stage, ".publication", "progress.json"))))
             {
                 Management.RecoveryBlobStore.CheckLinks(stage);
                 try { Directory.Delete(stage, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }

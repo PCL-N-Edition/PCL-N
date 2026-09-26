@@ -79,3 +79,12 @@ Desktop shell smoke。控制器测试不等同于在三个操作系统上人工�
 外部安装器内部步骤不做指令级 checkpoint，而是在隔离目录重做未完成处理器步骤；这避免恢复
 无法证明幂等的第三方副作用。损坏记录、外部变化或源在首次缓存完成前消失会明确失败并保留记录，
 不以丢弃证据或替换用户文件的方式强行完成。
+
+### Terminal receipts and startup visibility
+
+Successful install/modify writes an authenticated Completed receipt before reporting completion.
+Cleanup retains the tiny plan/status receipts, so cleanup failure cannot make the work pending.
+Discovery quietly reconciles a legacy authenticated committed publication without replaying its
+files (which the user may have since modified); a pending rename still requires recovery.
+Empty scans create no task cards. A discovery queue exists only while real recovery is pending,
+and its successful bookkeeping entry is dismissed. Failed recovery remains visible.

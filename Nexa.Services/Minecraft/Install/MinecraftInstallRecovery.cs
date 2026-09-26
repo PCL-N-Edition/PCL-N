@@ -25,6 +25,12 @@ public sealed partial class MinecraftInstallService
             RecoveryBlobStore.CheckLinks(lockPath);
             await using var lease = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             var status = await InstallTaskJournal.ReadStatusAsync(stage, saved, token).ConfigureAwait(false);
+            if (status == InstallTaskStatus.Completed)
+            {
+                execution.Completed = true;
+                string instance = saved.Command.NewInstanceName ?? saved.Command.InstanceName!;
+                return new(instance, Path.Combine(root, "versions", instance));
+            }
             if (status is InstallTaskStatus.RollbackRequested or InstallTaskStatus.RolledBack)
                 throw new InvalidOperationException("此任务已选择回滚，不能继续安装。");
             // Generic cancel would leave a resumable task and silently restart it next time.

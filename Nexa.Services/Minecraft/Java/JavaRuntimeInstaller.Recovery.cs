@@ -10,12 +10,14 @@ public sealed partial class JavaRuntimeInstaller
             if (_stopping) return Nexa.Xsr.XsrResult.Failure(Nexa.Xsr.XsrRuntimeErrors.Cancelled());
             _roots.Add(root);
         }
-        using var queue = _tasks?.Begin(new("java-install:recovery:" + Guid.NewGuid().ToString("N"), "恢复 Java 安装", ["恢复 Java"], CanCancel: false));
+        string queueId = "java-install:recovery:" + Guid.NewGuid().ToString("N");
+        Nexa.Services.Tasks.ITaskCenterTask? queue = null;
         await _recoveryGate.WaitAsync(token).ConfigureAwait(false);
         try
         {
             foreach (var journal in await PendingAsync(root, token).ConfigureAwait(false))
             {
+                queue ??= _tasks?.Begin(new(queueId, "恢复 Java 安装", ["恢复 Java"], CanCancel: false));
                 lock (_gate) if (_stopping) { queue?.Paused(); return Nexa.Xsr.XsrResult.Failure(Nexa.Xsr.XsrRuntimeErrors.Cancelled()); }
                 if (journal.CancelRequested)
                 {
@@ -27,12 +29,17 @@ public sealed partial class JavaRuntimeInstaller
                 }
                 await InstallAsync(journal.Intent.Component, root, cancellationToken: token).ConfigureAwait(false);
             }
-            queue?.Complete(); return Nexa.Xsr.XsrResult.Success();
+            queue?.Complete();
+            if (queue is not null) _tasks!.Dismiss(queueId);
+            return Nexa.Xsr.XsrResult.Success();
         }
         catch (OperationCanceledException) { queue?.Paused(); return Nexa.Xsr.XsrResult.Failure(Nexa.Xsr.XsrRuntimeErrors.Cancelled()); }
         catch (Exception error) when (error is not OutOfMemoryException and not AccessViolationException)
-        { queue?.Fail("Java 安装恢复需要处理。"); return Nexa.Xsr.XsrResult.Failure(MinecraftErrors.InvalidRequest(error.Message)); }
-        finally { _recoveryGate.Release(); }
+        {
+            queue ??= _tasks?.Begin(new(queueId, "恢复 Java 安装", ["恢复 Java"], CanCancel: false));
+            queue?.Fail("Java 安装恢复需要处理。"); return Nexa.Xsr.XsrResult.Failure(MinecraftErrors.InvalidRequest(error.Message));
+        }
+        finally { queue?.Dispose(); _recoveryGate.Release(); }
     }
 
     private static async Task CancelPendingAsync(string root)

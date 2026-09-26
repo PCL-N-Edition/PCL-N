@@ -17,6 +17,7 @@ internal static partial class Program
         ("downloads without identity restart every source", DownloadsWithoutIdentityRestartEverySource),
         ("new installation recovers after killed downloader without repeating verified files", NewInstallationRecoversAfterKilledDownloaderWithoutRepeatingVerifiedFile),
         ("install recovery discovery isolates invalid tasks and honors disposition", InstallRecoveryDiscoveryIsolatesInvalidTasksAndHonorsDisposition),
+        ("completed install recovery does not repopulate task center", CompletedInstallRecoveryDoesNotRepopulateTaskCenter),
         ("install recovery repairs committed terminal before rejecting rollback", InstallRecoveryRepairsCommittedTerminalBeforeRejectingRollback),
         ("install recovery continues preparation and rejects concurrent execution", InstallRecoveryContinuesPreparationAndRejectsConcurrentExecution),
         ("install publication survives process termination", InstallPublicationSurvivesProcessTermination),

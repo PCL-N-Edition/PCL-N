@@ -33,7 +33,7 @@ public sealed partial class MinecraftInstallService
         command = command with { RootDirectory = root, InstanceName = instance };
         string stage = resumeStage ?? ForgeInstallService.Contained(root, ".nexa-install-jobs/" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(stage);
-        bool safeToRemove = false;
+        bool safeToRemove = false, completed = false;
         FileStream? lease = null;
         try
         {
@@ -69,9 +69,13 @@ public sealed partial class MinecraftInstallService
                 safeToRemove = true;
                 throw;
             }
-            safeToRemove = true;
+            // Keep committed evidence if persisting the terminal receipt fails.
+            safeToRemove = false;
             if (resumeStage is null)
             {
+                var saved = await InstallTaskJournal.ReadAsync(root, stage, CancellationToken.None).ConfigureAwait(false);
+                await InstallTaskJournal.WriteStatusAsync(stage, saved, InstallTaskStatus.Completed, CancellationToken.None).ConfigureAwait(false);
+                completed = true;
                 task.Complete("已安装 " + instance);
                 Installed?.Invoke(root);
             }
@@ -80,7 +84,8 @@ public sealed partial class MinecraftInstallService
         finally
         {
             lease?.Dispose();
-            if (resumeStage is null && (safeToRemove || !_pauseForExit && !File.Exists(Path.Combine(stage, ".publication", "progress.json"))))
+            if (completed) InstallTaskCleanup.TryPrune(stage, ".task/plan.json", ".task/status.json", ".task/execution.lock");
+            if (!completed && resumeStage is null && (safeToRemove || !_pauseForExit && !File.Exists(Path.Combine(stage, ".publication", "progress.json"))))
             {
                 RecoveryBlobStore.CheckLinks(stage);
                 try { Directory.Delete(stage, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }

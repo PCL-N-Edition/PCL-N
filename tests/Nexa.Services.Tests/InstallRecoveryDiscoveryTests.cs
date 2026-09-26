@@ -5,6 +5,48 @@ namespace Nexa.Services.Tests;
 
 internal static partial class Program
 {
+    private static async ValueTask CompletedInstallRecoveryDoesNotRepopulateTaskCenter()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            using var fixture = new InstallFixture(new() { VanillaJson = VanillaJson(), AssetIndexJson = AssetIndexJson() });
+            int Visible() => fixture.Store.ReadCollection<TaskCenterEntry>(fixture.Store.Resolve(TaskCenterStateContract.EntriesKey)).Items.Count;
+            AssertTrue((await fixture.Install.RecoverPendingAsync(new([root]))).IsSuccess);
+            AssertEqual(0, Visible());
+            AssertTrue((await fixture.Install.InstallAsync(new(root, "1.20.1", InstanceName: "fresh"))).IsSuccess);
+            string completed = Directory.GetDirectories(Path.Combine(root, ".nexa-install-jobs")).Single();
+            var plan = await InstallTaskJournal.ReadAsync(root, completed, default);
+            AssertEqual(InstallTaskStatus.Completed, await InstallTaskJournal.ReadStatusAsync(completed, plan, default));
+            fixture.Tasks.ClearFinished();
+            await fixture.Install.ResumeInstallationAsync(root, plan.Id, newInstallation: true);
+            AssertEqual(0, Visible());
+
+            // Legacy releases could leave a committed publication without a terminal task receipt.
+            string legacy = await MetadataTaskStage(root);
+            Directory.CreateDirectory(Path.Combine(legacy, "versions", "test"));
+            File.WriteAllText(Path.Combine(legacy, "versions", "test", "test.json"), "installed");
+            var publication = await InstallPublicationJournal.PrepareAsync(root, legacy, "test", ["versions/test/test.json"], new Dictionary<string, string>(), default);
+            await publication.ApplyAsync(default);
+            string target = Path.Combine(root, "versions", "test", "test.json");
+            File.WriteAllText(target, "user changed this after installation");
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                AssertTrue((await fixture.Install.RecoverPendingAsync(new([root]))).IsSuccess);
+                AssertEqual(0, Visible());
+                AssertEqual("user changed this after installation", File.ReadAllText(target));
+            }
+            AssertEqual(InstallTaskStatus.Completed, await InstallTaskJournal.ReadStatusAsync(legacy, await InstallTaskJournal.ReadAsync(root, legacy, default), default));
+            using var client = new HttpClient(new RejectJavaDownloadHandler());
+            using var java = new Nexa.Services.Minecraft.Java.JavaRuntimeInstaller(
+                new Nexa.Services.Minecraft.Java.JavaRuntimeDownloadPlanService(new RejectJavaMetadata()), client, tasks: fixture.Tasks);
+            AssertTrue((await java.RecoverAsync(root)).IsSuccess);
+            AssertTrue((await java.RecoverAsync(root)).IsSuccess);
+            AssertEqual(0, Visible());
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     private static async ValueTask InstallRecoveryDiscoveryIsolatesInvalidTasksAndHonorsDisposition()
     {
         string root = CreateTempDirectory();
