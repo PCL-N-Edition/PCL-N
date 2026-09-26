@@ -62,6 +62,12 @@ internal sealed partial class SettingsPageController
                 ContentName(hero, item.Description, 14, null, maxLines: 0);
             }
         }
+        if (_selected == "mods")
+        {
+            if (item.PackageProblem.Length > 0) ManagementFactIn(hero, "包检测", item.PackageProblem);
+            ManagementFactIn(hero, "更新", item.UpdateAvailable == true ? "可更新至 " + item.UpdateVersion
+                : item.UpdateAvailable == false ? "未发现更新" : "尚未检测或未识别");
+        }
         ManagementFactIn(hero, "文件名", item.Name);
         if (item.Version.Length > 0) ManagementFactIn(hero, _selected == "resourcepacks" ? "资源包格式" : "版本", item.Version);
         ManagementFactIn(hero, "大小", item.Size is { } bytes ? FormatContentSize(bytes) : "文件夹");

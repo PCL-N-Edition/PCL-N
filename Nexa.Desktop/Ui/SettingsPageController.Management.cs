@@ -22,6 +22,7 @@ internal sealed partial class SettingsPageController
     private int _contentWindowStart = -1, _contentWindowCount;
     private int _trashPage;
     private XsrUiEntityId _contentSearch;
+    private XsrUiEntityId _contentCount;
     private string _contentFilter = "";
     private InstanceContentEntry? _contentDetail;
     private double _contentReturnOffset;
@@ -41,7 +42,7 @@ internal sealed partial class SettingsPageController
     private void ResetManagement()
     {
         if (_instanceDirectory is null) return;
-        _contentDetail = null; _contentFilter = "";
+        _contentDetail = null; _contentFilter = ""; _modCategory = "all"; _checkModUpdates = false; _checkingModUpdates = false;
         CancelManagementRead(); _management = null; _managementError = null;
         _selected = "overview"; _scrollPositions.Clear(); _recoverySnapshotPage = 0; _recoveryChangesPage = 0;
         if (_catalog is not null) RebuildManagementNavigation();
@@ -74,11 +75,12 @@ internal sealed partial class SettingsPageController
         {
             _managementStop = new();
             _managementRead = _queries.QueryAsync<InstanceManagementQuery, InstanceManagementSnapshot>(route,
-                new(_instance) { IncludeRecoveryStorage = _selected == "recovery", IncludeTrash = _selected == "trash" }, cancellationToken: _managementStop.Token).AsTask();
+                new(_instance) { IncludeRecoveryStorage = _selected == "recovery", IncludeTrash = _selected == "trash", CheckModUpdates = _checkModUpdates }, cancellationToken: _managementStop.Token).AsTask();
+            _checkModUpdates = false;
             WakeOnPlatformCompletion(_managementRead);
         }
         if (_managementRead is not { IsCompleted: true } reading) return;
-        _managementRead = null; _managementLoaded = true;
+        _managementRead = null; _managementLoaded = true; _checkingModUpdates = false;
         _managementStop?.Dispose(); _managementStop = null;
         if (reading.IsCompletedSuccessfully && reading.Result.IsSuccess
             && reading.Result.Value!.InstanceDirectory == _instance)
@@ -150,10 +152,11 @@ internal sealed partial class SettingsPageController
             ManagementButton(toolbar, "刷新", () => { CancelManagementRead(); _managementError = null; }, 60);
             ManagementButton(toolbar, "打开文件夹", () => OpenContentDirectory(directory), 100);
             _contentSnapshot = snapshot.Contents.FirstOrDefault(item => item.PageId == _selected);
+            if (_selected == "mods") BuildModCategories();
             var location = Stack(_sections, "ManagementLocation", XsrUiOrientation.Horizontal, 12);
             var path = Text(location, directory, 12, Muted, 24);
             _shell.Tree.GetComponent<XsrUiElement>(path)!.Weight = 1;
-            Text(location, $"{_contentSnapshot?.Entries.Count ?? 0} 项" + (_contentSnapshot?.Complete == false ? " · 未全部列出" : ""), 12, Muted, 24);
+            _contentCount = Text(location, $"{_contentSnapshot?.Entries.Count ?? 0} 项" + (_contentSnapshot?.Complete == false ? " · 未全部列出" : ""), 12, Muted, 24);
             if (_managementError is not null) Text(_sections, _managementError, 13, Muted, 28);
             if (_contentSnapshot?.Error is { } error) Text(_sections, error, 13, Muted, 28);
             _contentList = Stack(_sections, "ManagementContentList", XsrUiOrientation.Vertical, 0);
@@ -204,7 +207,7 @@ internal sealed partial class SettingsPageController
         foreach (var action in _contentActions) _managementActions.Remove(action);
         _contentActions.Clear();
         foreach (var child in _shell.Tree.Children(_contentList).ToArray()) _shell.Tree.Destroy(child);
-        if (rows == 0) Text(_contentList, _contentFilter.Length == 0 ? "此目录中还没有内容。" : "没有匹配的内容。", 13, Muted, 48);
+        if (rows == 0) Text(_contentList, _contentFilter.Length == 0 && (_selected != "mods" || _modCategory == "all") ? "此目录中还没有内容。" : "没有匹配的内容。", 13, Muted, 48);
         Element(_contentList, "ManagementContentBefore", XsrUiSemanticRole.None, null, height: start * rowHeight);
         for (int rowIndex = start; rowIndex < start + count; rowIndex++)
         {
@@ -234,7 +237,7 @@ internal sealed partial class SettingsPageController
                     else
                     {
                         ContentName(text, item.DisplayName.Length == 0 ? item.Name : item.DisplayName, 15, 26);
-                        Text(text, item.Name + (item.Enabled == false ? " · 已停用" : ""), 12, Muted, 22);
+                        Text(text, item.Name + (item.Enabled == false ? " · 已禁用" : "") + (item.PackageProblem.Length > 0 ? " · 包异常" : item.UpdateAvailable == true ? " · 可更新" : ""), 12, Muted, 22);
                     }
                     if (_selected == "mods")
                     {
@@ -257,7 +260,9 @@ internal sealed partial class SettingsPageController
     private void ApplyContentFilter()
     {
         if (_management?.Contents.FirstOrDefault(item => item.PageId == _selected) is not { } source) return;
-        _contentSnapshot = source with { Entries = source.Entries.Where(item => ((item.Name.Contains(_contentFilter, StringComparison.OrdinalIgnoreCase) || StripContentFormatting(item.Name).Contains(_contentFilter, StringComparison.OrdinalIgnoreCase)) || (StripContentFormatting(item.DisplayName).Contains(_contentFilter, StringComparison.OrdinalIgnoreCase) || StripContentFormatting(item.Description).Contains(_contentFilter, StringComparison.OrdinalIgnoreCase)) || item.Version.Contains(_contentFilter, StringComparison.OrdinalIgnoreCase))).ToArray() };
+        _contentSnapshot = source with { Entries = source.Entries.Where(item => (_selected != "mods" || MatchesModCategory(item, _modCategory)) && ((item.Name.Contains(_contentFilter, StringComparison.OrdinalIgnoreCase) || StripContentFormatting(item.Name).Contains(_contentFilter, StringComparison.OrdinalIgnoreCase)) || (StripContentFormatting(item.DisplayName).Contains(_contentFilter, StringComparison.OrdinalIgnoreCase) || StripContentFormatting(item.Description).Contains(_contentFilter, StringComparison.OrdinalIgnoreCase)) || item.Version.Contains(_contentFilter, StringComparison.OrdinalIgnoreCase))).ToArray() };
+        if (_contentCount.IsAssigned && _shell.Tree.IsAlive(_contentCount))
+            _shell.Tree.SetComponent(_contentCount, new XsrUiText($"{_contentSnapshot.Entries.Count} / {source.Entries.Count} 项" + (source.Complete ? "" : " · 未全部列出")));
         _contentWindowStart = -1;
     }
 

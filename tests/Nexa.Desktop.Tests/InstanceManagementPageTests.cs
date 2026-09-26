@@ -99,6 +99,36 @@ internal static partial class Program
             if (!toggled) throw new InvalidOperationException($"Toggle did not refresh: file={File.Exists(Path.Combine(mods, "example.jar.disabled"))}; page={settings.SelectedSection}; errors={string.Join(";", fixture.Feedback.Snapshot().Notifications.Select(item => item.Message))}");
             AssertTrue(File.Exists(Path.Combine(mods, "example.jar.disabled")));
             AssertFalse(File.Exists(Path.Combine(mods, "example.jar")));
+            void Category(string key)
+            {
+                Emit(fixture.Intents, "ui.settings.management.action", FindByKey(fixture.Shell, scene, "ManagementModCategory." + key).Entity);
+                scene = fixture.Shell.Render(new(1000, 650));
+            }
+            bool HasMod(string name) => scene.Nodes.Any(node => fixture.Shell.Tree.Name(node.Entity) == "ManagementContentDetails." + name);
+            var modSearch = FindByKey(fixture.Shell, scene, "ManagementContentSearch").Entity;
+            Category("enabled");
+            AssertTrue(HasMod("iris.jar"));
+            AssertFalse(HasMod("example.jar.disabled"));
+            Category("disabled");
+            AssertFalse(HasMod("iris.jar"));
+            AssertTrue(HasMod("example.jar.disabled"));
+            AssertEqual(modSearch, FindByKey(fixture.Shell, scene, "ManagementContentSearch").Entity);
+            fixture.Shell.Renderer.SetTextInputValue(modSearch, "Iris");
+            scene = fixture.Shell.Render(new(1000, 650));
+            AssertFalse(HasMod("example.jar.disabled"));
+            Category("enabled");
+            AssertTrue(HasMod("iris.jar"));
+            fixture.Shell.Renderer.SetTextInputValue(modSearch, "");
+            scene = fixture.Shell.Render(new(1000, 650));
+            Category("problems");
+            AssertTrue(HasMod("example.jar.disabled"));
+            AssertFalse(HasMod("iris.jar"));
+            Category("updates");
+            AssertFalse(HasMod("iris.jar"));
+            Category("unchecked");
+            AssertTrue(HasMod("iris.jar"));
+            Category("all");
+            AssertTrue(HasMod("iris.jar") && HasMod("example.jar.disabled"));
             Emit(fixture.Intents, "ui.settings.section", FindByKey(fixture.Shell, scene, "SettingsNav.resourcepacks").Entity);
             scene = fixture.Shell.Render(new(1000, 650));
             scene = fixture.Shell.Render(new(1000, 650));
