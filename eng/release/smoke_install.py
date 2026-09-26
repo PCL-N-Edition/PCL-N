@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+from package import validate_runtime_contents
 
 
 def run(*args):
@@ -36,6 +37,7 @@ def windows(root, base):
         for path in (executable, desktop, menu):
             require(path)
         check_jvm_host(host)
+        validate_runtime_contents(executable.parent)
         run(executable, "--validate-shell")
     run(root / (base + ".setup.exe"), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/TASKS=desktopicon")
     try:
@@ -63,6 +65,7 @@ def macos(root, base):
             app = Path("/Applications/Nexa.app")
             executable = app / "Contents/MacOS/Nexa.Desktop"
             require(executable)
+            validate_runtime_contents(app)
             host = executable.parent / "Nexa.Jvm.Host"
             check_jvm_host(host)
             if host.stat().st_uid != 0 or host.stat().st_mode & 0o022:
@@ -81,6 +84,7 @@ def linux(root, base):
         require(Path("/usr/bin/secret-tool"))
         executable = Path("/usr/lib/nexacl/Nexa.Desktop")
         require(executable)
+        validate_runtime_contents(executable.parent)
         require(Path("/usr/share/applications/nexacl.desktop"))
         if executable.stat().st_uid != 0 or executable.stat().st_mode & 0o022:
             raise RuntimeError("Linux system payload must be root owned and not user writable")

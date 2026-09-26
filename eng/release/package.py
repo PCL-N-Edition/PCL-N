@@ -1,5 +1,6 @@
 """Native packaging on the matching CI runner. No source or shell strings are evaluated."""
 import argparse
+import fnmatch
 import os
 import plistlib
 import shutil
@@ -8,6 +9,26 @@ import tarfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+
+# Match individual path components, case-insensitively on every build runner.
+# Do not blanket-exclude DLL/JSON/XML: they can be runtime libraries or assets.
+DEVELOPMENT_ARTIFACTS = (
+    "*.pdb", "*.dbg", "*.debug", "*.dsym", "*.ilk", "*.ipdb", "*.iobj",
+    "*.tests", "*.tests.*", "testhost", "testhost.*",
+    "microsoft.testplatform.*", "microsoft.visualstudio.testplatform.*",
+    "testresults", "coverage", "coverage.cobertura.xml", "coverage.opencover.xml",
+)
+
+
+def is_development_artifact(name):
+    return any(fnmatch.fnmatchcase(name.lower(), pattern) for pattern in DEVELOPMENT_ARTIFACTS)
+
+
+def validate_runtime_contents(payload):
+    unwanted = [str(path.relative_to(payload)) for path in payload.rglob("*")
+                if is_development_artifact(path.name)]
+    if unwanted:
+        raise ValueError(f"Development artifacts in runtime payload: {sorted(unwanted)}")
 
 
 def required_tool(variable):
@@ -20,7 +41,9 @@ def required_tool(variable):
 def copy_runtime_payload(source, destination):
     # NativeAOT emits large debugging sidecars; they are not runtime dependencies.
     # Keep the publish directory intact for separate diagnostic artifact retention.
-    shutil.copytree(source, destination, ignore=shutil.ignore_patterns("*.pdb", "*.dbg", "*.dSYM"))
+    shutil.copytree(source, destination,
+                    ignore=lambda _directory, names: [name for name in names if is_development_artifact(name)])
+    validate_runtime_contents(destination)
 
 
 def run(*args, **kwargs):
@@ -28,6 +51,7 @@ def run(*args, **kwargs):
 
 
 def archive(source, output, name):
+    validate_runtime_contents(source)
     if output.suffix == ".zip":
         shutil.make_archive(str(output.with_suffix("")), "zip", source)
     else:
@@ -150,13 +174,15 @@ def main():
     platform, arch = args.rid.split("-")
     if platform not in ("win", "linux", "osx") or arch not in ("x64", "arm64"):
         raise ValueError("Unsupported RID")
-    validate_payload(args.payload, platform)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     work = output.parent / f"package-{args.rid}"
     work.mkdir()  # A fresh staging directory prevents stale files entering packages.
+    payload = work / "runtime"
+    copy_runtime_payload(args.payload.resolve(), payload)
+    validate_payload(payload, platform)
     globals()[{"win": "windows", "osx": "macos", "linux": "linux"}[platform]](
-        args.payload.resolve(), output, work, f"Nexa-{args.version}-{args.rid}", args.version, data["prefix"], arch)
+        payload, output, work, f"Nexa-{args.version}-{args.rid}", args.version, data["prefix"], arch)
 
 
 if __name__ == "__main__":

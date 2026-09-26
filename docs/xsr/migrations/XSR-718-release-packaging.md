@@ -13,7 +13,7 @@ matrix target and verifies the expected package set with checksums. No release t
 implicitly during implementation.
 
 `eng/release/metadata.py` reads the actual tagged commit and the preceding reachable version
-tag. `package.py` packages the complete self-contained publish directory on native runners;
+tag. `package.py` stages the self-contained runtime payload on native runners;
 `verify.py` requires all 18 packages before the distribution job can publish. The Windows EXE
 has an optional desktop-shortcut checkbox. MSI installs the `DesktopShortcut` feature by
 default; `ADDLOCAL=Launcher` excludes it. MSI's numeric version uses the product prefix,
@@ -32,4 +32,12 @@ message preservation without execution, and refusal to release missing or empty 
 Every runner executes the published launcher with `--validate-shell` before packaging.
 
 Linux package metadata now requires the Secret Service client: DEB libsecret-tools and RPM /usr/bin/secret-tool. Portable builds explain how to install the missing client and unlock a desktop keyring; account storage never falls back to plaintext. Package construction regression checks both generated dependency argument sets; the native-account CI job exercises the real Linux keyring.
+
+All six targets stage through one case-insensitive, recursive development-artifact filter
+before constructing any installer or portable archive. PDB/DBG/DEBUG/dSYM symbols,
+incremental-linker sidecars, test assemblies/test hosts and test-result/coverage directories
+are excluded. Runtime libraries, resources and runtime configuration files remain intact;
+the original publish output keeps its symbols for diagnosis. Archive creation and installed
+payload smoke tests reject leaked development artifacts. Published historical assets are not
+silently replaced by this build-pipeline change.
 
