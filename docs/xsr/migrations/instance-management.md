@@ -65,3 +65,19 @@ inheritsFrom/jar 引用和实例设置键；存档、配置与其他文件随目
 
 验收需逐页对照上述 dev 功能，并覆盖：原版、不同加载器、禁用/缺失支持模组、切换实例、
 共享目录、文件冲突与取消。接口或空白页面不能算完成，完整管理操作尚待实现。
+
+## Installed content presentation (2026-09-26)
+
+The management query projects local display name, version, description and bounded PNG media.
+These fields are presentation metadata, not trusted launch or compatibility facts. Archive reads
+use actual-byte limits and a shared query budget; malformed or unsupported metadata falls back
+to the filename and a category placeholder. No archive I/O occurs in Desktop rendering.
+Content lists expose one details action. Installed-content details retain enable/disable and
+trash actions and never navigate to the download catalog. Screenshots use virtualized gallery
+rows and a local preview. A stable search toolbar precedes a directory/count line; filtering
+changes only realized rows, preserving input identity and focus. Minecraft legacy color and
+bold/italic/underline/strikethrough/reset codes are rendered as styled runs without displaying control sequences.
+
+UI.Next text runs carry immutable styled ranges over plain accessible text; the backend applies
+them without interpreting Minecraft syntax. Complete-image raster fitting is opt-in so skin-layer
+composition is unchanged. Local previews retain at most 1024 pixels per decoded dimension.

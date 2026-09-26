@@ -12,6 +12,10 @@ public sealed record InstanceManagementQuery(string InstanceDirectory)
 public sealed record InstanceManagementPage(string Id, string Label, string? Directory = null);
 public sealed record InstanceContentEntry(string Name, bool IsDirectory, long? Size)
 {
+    public string DisplayName { get; init; } = "";
+    public string Version { get; init; } = "";
+    public string Description { get; init; } = "";
+    public Nexa.Core.Media.PngImage? Icon { get; init; }
     public bool? Enabled { get; init; }
     public long ModifiedUtcTicks { get; init; }
 }
@@ -54,14 +58,17 @@ public static class InstanceManagementService
             var edit = await MinecraftInstallEditService.ReadAsync(new(versions.Parent.FullName, Path.GetFileName(instance)), token).ConfigureAwait(false);
             var inventory = await LaunchModInventoryReader.ReadAsync(gameDirectory, token).ConfigureAwait(false);
             var pages = Pages(gameDirectory, edit.Selection, inventory);
+            List<InstanceContentSnapshot> contents = [];
+            var mediaBudget = new Nexa.Services.Files.ArchiveReadBudget(64 * 1024 * 1024);
+            foreach (var page in pages.Where(page => page.Directory is not null))
+                contents.Add(await InstanceContentMetadata.EnrichAsync(ReadContent(page, token), page.Directory!, mediaBudget, token).ConfigureAwait(false));
             return new InstanceManagementSnapshot(instance, gameDirectory, edit.GameVersion, edit.Selection,
                 pages, inventory.Complete, metadata.ModpackVersion)
             {
                 Description = metadata.Description,
                 Trash = query.IncludeTrash ? InstanceContentTrash.Read(instance, gameDirectory) : [],
                 RecoveryStorage = query.IncludeRecoveryStorage ? await InstanceRecoveryStorageReader.ReadAsync(instance, gameDirectory, token).ConfigureAwait(false) : null,
-                Contents = Array.AsReadOnly(pages.Where(page => page.Directory is not null)
-                    .Select(page => ReadContent(page, token)).ToArray()),
+                Contents = contents.AsReadOnly(),
             };
         }, token);
 

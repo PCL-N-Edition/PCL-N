@@ -54,6 +54,7 @@ internal static partial class Program
         ("loader installs are independent unless opted into inheritance", LoaderInstallsAreIndependentUnlessOptedIn),
         ("instance management follows enabled capabilities", Sync(InstanceManagementPagesFollowEnabledCapabilities)),
         ("instance management reads exact instance", InstanceManagementReadsExactInstance),
+        ("content metadata uses local names and bounded media", ContentMetadataUsesLocalNamesAndBoundedMedia),
         ("telemetry transport reports bounded failures", TelemetryTransportReportsBoundedFailures),
         ("local OptiFine uses static field constants", LocalOptiFineUsesFieldConstants),
         ("resource history requires matching persisted settings", Sync(ResourceHistoryRequiresMatchingPersistedSettings)),

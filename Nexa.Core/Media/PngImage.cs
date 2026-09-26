@@ -17,10 +17,17 @@ public sealed class PngImage
     public int Height { get; }
     public ReadOnlyMemory<byte> Bytes => _bytes;
     public static PngImage? TryCreate(ReadOnlySpan<byte> bytes)
+        => Create(bytes, 1_048_576, 1024);
+
+    /// <summary>Bounded encoded local screenshot; decoding remains a backend concern.</summary>
+    public static PngImage? TryCreatePreview(ReadOnlySpan<byte> bytes)
+        => Create(bytes, 16 * 1_048_576, 4096);
+
+    private static PngImage? Create(ReadOnlySpan<byte> bytes, int byteLimit, int dimensionLimit)
     {
-        if (bytes.Length is < 33 or > 1_048_576 || !bytes[..8].SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 })
+        if (bytes.Length < 33 || bytes.Length > byteLimit || !bytes[..8].SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 })
             || BinaryPrimitives.ReadInt32BigEndian(bytes[8..12]) != 13 || !bytes[12..16].SequenceEqual("IHDR"u8)) return null;
         int width = BinaryPrimitives.ReadInt32BigEndian(bytes[16..20]), height = BinaryPrimitives.ReadInt32BigEndian(bytes[20..24]);
-        return width is > 0 and <= 1024 && height is > 0 and <= 1024 ? new(bytes.ToArray(), width, height) : null;
+        return width > 0 && width <= dimensionLimit && height > 0 && height <= dimensionLimit ? new(bytes.ToArray(), width, height) : null;
     }
 }
