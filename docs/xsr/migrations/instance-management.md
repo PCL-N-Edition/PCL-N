@@ -103,3 +103,16 @@ Text inputs own pointer gestures before ancestor scroll and pager recognizers ar
 A full click retains input focus after release, and text selection cannot drag the containing
 page. Regression coverage includes the real management search click and typing, renderer
 press/move/release and cancellation, and native captured selection followed by replacement.
+
+### Mod categories
+
+The local mod list combines text search with All, Enabled, Disabled, Update available,
+Package problems and Unchecked categories. Enablement is independent of package health.
+Services project nullable package-readability and update facts: missing metadata, exhausted
+inspection budgets and unknown online identities never mean corrupt or up to date.
+Package inspection covers the archive and supported metadata, not full loader compatibility.
+Update checks are explicitly requested, asynchronous and read-only, using Modrinth file hashes
+and the instance Minecraft/loader constraints. A candidate must belong to the same project,
+be newer than the identified installed release and exclude the installed hash. No file is
+uploaded or replaced. Unmatched/offline files remain unknown. Search/category changes retain
+the search entity and update only virtualized rows; refresh and detail navigation retain category.

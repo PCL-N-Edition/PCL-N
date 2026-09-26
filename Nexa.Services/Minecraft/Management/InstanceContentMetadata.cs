@@ -17,11 +17,14 @@ internal static class InstanceContentMetadata
         {
             token.ThrowIfCancellationRequested();
             var result = entry with { DisplayName = entry.Name };
-            if (budget.Remaining > 0)
+            if (budget.Remaining > 0 && (snapshot.PageId != "mods" || entry.Enabled is not null))
             {
                 try { result = await ReadAsync(result, snapshot.PageId, Path.Combine(directory, entry.Name), budget, token).ConfigureAwait(false); }
                 catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException or ArgumentException)
-                { /* A damaged item must not hide its neighbors or become a launch fact. */ }
+                {
+                    if (snapshot.PageId == "mods" && entry.Enabled is not null)
+                        result = result with { PackageProblem = "无法读取模组包或其元数据。" };
+                }
             }
             entries.Add(result);
         }
@@ -52,9 +55,15 @@ internal static class InstanceContentMetadata
                 if (item.Size > 256L * 1024 * 1024) return item;
                 CheckPath(path);
                 stream = File.OpenRead(path);
-                archive = new ZipArchive(stream, ZipArchiveMode.Read);
-                if (archive.Entries.Count > 16384) return item;
+                try
+                {
+                    archive = new ZipArchive(stream, ZipArchiveMode.Read);
+                    if (archive.Entries.Count > 16384) return item;
+                }
+                catch (InvalidDataException) when (page == "mods")
+                { return item with { PackageReadable = false, PackageProblem = "模组包损坏或不是有效的 JAR 归档。" }; }
             }
+            bool skippedMetadata = false, foundMetadata = false;
             async Task<byte[]?> Read(string name, int limit)
             {
                 if (name.Length == 0 || name.Length > 512 || name.Contains('\\') || name.Contains(':')
@@ -62,10 +71,14 @@ internal static class InstanceContentMetadata
                 if (archive is null)
                 {
                     string file = Path.Combine(path, name.Replace('/', Path.DirectorySeparatorChar));
-                    return File.Exists(file) ? await ReadFile(file, limit, budget, token).ConfigureAwait(false) : null;
+                    if (!File.Exists(file)) return null;
+                    if (new FileInfo(file).Length > Math.Min(limit, budget.Remaining)) { skippedMetadata = true; return null; }
+                    return await ReadFile(file, limit, budget, token).ConfigureAwait(false);
                 }
                 var matches = archive.Entries.Where(entry => entry.FullName == name).Take(2).ToArray();
-                if (matches.Length != 1) return null;
+                if (matches.Length > 1) throw new InvalidDataException("归档中存在重复的元数据条目。");
+                if (matches.Length == 0) return null;
+                if (matches[0].Length > Math.Min(limit, budget.Remaining)) { skippedMetadata = true; return null; }
                 using var input = matches[0].Open(); using var output = new MemoryStream();
                 await ArchiveReadBudget.CopyAsync(input, output, matches[0].Length, limit, budget, token).ConfigureAwait(false);
                 return output.ToArray();
@@ -77,6 +90,7 @@ internal static class InstanceContentMetadata
                 {
                     byte[]? bytes = await Read(format, 256 * 1024).ConfigureAwait(false);
                     if (bytes is null) continue;
+                    foundMetadata = true;
                     if (format.EndsWith(".toml", StringComparison.Ordinal))
                     {
                         string text = Encoding.UTF8.GetString(bytes);
@@ -89,7 +103,10 @@ internal static class InstanceContentMetadata
                     }
                     else
                     {
-                        JsonNode? root = JsonNode.Parse(bytes);
+                        JsonNode? root;
+                        try { root = JsonNode.Parse(bytes); }
+                        catch (System.Text.Json.JsonException) when (page == "mods")
+                        { return item with { PackageReadable = false, PackageProblem = "模组元数据的 JSON 格式无效。" }; }
                         JsonNode? mod = root is JsonArray array ? array.FirstOrDefault() : root?["modList"] is JsonArray list ? list.FirstOrDefault() : root;
                         if (format == "quilt.mod.json") mod = root?["quilt_loader"];
                         JsonNode? display = mod?["metadata"] ?? mod;
@@ -108,6 +125,7 @@ internal static class InstanceContentMetadata
                 name = description.Split('\n')[0];
                 version = pack?["pack_format"]?.ToJsonString() ?? "";
             }
+            bool? readable = page == "mods" && foundMetadata && !skippedMetadata ? true : item.PackageReadable;
             PngImage? image = null;
             try
             {
@@ -115,7 +133,7 @@ internal static class InstanceContentMetadata
             }
             catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException)
             { /* Keep readable metadata when only the optional icon is invalid. */ }
-            return item with { DisplayName = string.IsNullOrWhiteSpace(name) ? item.Name : Limit(name), Version = Limit(version), Description = Limit(description), Icon = image };
+            return item with { DisplayName = string.IsNullOrWhiteSpace(name) ? item.Name : Limit(name), Version = Limit(version), Description = Limit(description), Icon = image, PackageReadable = readable };
         }
         finally { archive?.Dispose(); stream?.Dispose(); }
     }

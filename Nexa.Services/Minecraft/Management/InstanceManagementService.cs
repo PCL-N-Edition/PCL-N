@@ -8,6 +8,7 @@ public sealed record InstanceManagementQuery(string InstanceDirectory)
 {
     public bool IncludeRecoveryStorage { get; init; }
     public bool IncludeTrash { get; init; }
+    public bool CheckModUpdates { get; init; }
 }
 public sealed record InstanceManagementPage(string Id, string Label, string? Directory = null);
 public sealed record InstanceContentEntry(string Name, bool IsDirectory, long? Size)
@@ -17,6 +18,10 @@ public sealed record InstanceContentEntry(string Name, bool IsDirectory, long? S
     public string Description { get; init; } = "";
     public Nexa.Core.Media.PngImage? Icon { get; init; }
     public bool? Enabled { get; init; }
+    public bool? PackageReadable { get; init; }
+    public string PackageProblem { get; init; } = "";
+    public bool? UpdateAvailable { get; init; }
+    public string UpdateVersion { get; init; } = "";
     public long ModifiedUtcTicks { get; init; }
 }
 public sealed record InstanceContentSnapshot(string PageId, IReadOnlyList<InstanceContentEntry> Entries, bool Complete, string? Error);
@@ -62,6 +67,13 @@ public static class InstanceManagementService
             var mediaBudget = new Nexa.Services.Files.ArchiveReadBudget(64 * 1024 * 1024);
             foreach (var page in pages.Where(page => page.Directory is not null))
                 contents.Add(await InstanceContentMetadata.EnrichAsync(ReadContent(page, token), page.Directory!, mediaBudget, token).ConfigureAwait(false));
+            if (query.CheckModUpdates)
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+                for (int i = 0; i < contents.Count; i++)
+                    if (contents[i].PageId == "mods")
+                        contents[i] = await InstanceModUpdates.CheckAsync(http, contents[i], Path.Combine(gameDirectory, "mods"), edit.GameVersion, edit.Selection, token).ConfigureAwait(false);
+            }
             return new InstanceManagementSnapshot(instance, gameDirectory, edit.GameVersion, edit.Selection,
                 pages, inventory.Complete, metadata.ModpackVersion)
             {
